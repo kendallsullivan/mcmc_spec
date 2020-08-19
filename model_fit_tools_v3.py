@@ -978,7 +978,7 @@ def loglikelihood(p0, nspec, ndust, data, broadening, r, w = 'aa', pysyn = False
 	
 	flux_ratio = p0[nspec*2]
 
-	print('getting spectra')
+	#print('getting spectra')
 	for n in range(nspec):
 		if len(p0) == nspec:
 			lg = 4
@@ -1025,11 +1025,11 @@ def logprior(p0, nspec, ndust):
 
 	if ndust > 0:
 		dust = p0[2 * nspec + 2:]
-	for p in range(nspec):
-		if 2000 <= temps[p] <= 7000 and 3.5 <= lgs[p] <= 5:
-			return 0.0
-		else:
-			return -np.inf
+	
+	if any(t > 10000 for t in temps) or any(t < 2300 for t in temps) or any(l < 3 for l in lgs) or any(l > 5 for l in lgs):
+		return -np.inf
+	else:
+		return 0
 
 def logposterior(p0, nspec, ndust, data, broadening, r, wu = 'aa', pysyn = False, dust = False, norm = True):
 	"""The natural logarithm of the joint posterior.
@@ -1130,25 +1130,43 @@ def run_emcee(fname, nwalkers, nsteps, ndim, nburn, pos, nspec, ndust, data, bro
 
 		sampler = emcee.EnsembleSampler(nwalkers, ndim, logposterior, threads=nwalkers, args=[nspec, ndust, data, broadening, r], \
 		kwargs={'pysyn': pys, 'dust': du, 'norm':no}, pool = pool)
-
-		state = sampler.run_mcmc(pos, nburn, progress = True)
-
-		#f = open('results/{}_burnin.txt'.format(fname), "w")
-		#f.write(sampler.flatchain)
-		#f.close()
-		np.savetxt('results/{}_burnin.txt'.format(fname), sampler.flatchain)
 		
+		for n, s in enumerate(sampler.sample(pos, iterations = nburn)):
+			with open('results/{}_{}_burnin.txt'.format(fname, n), 'ab') as f:
+				f.write(b"\n")
+				np.savetxt(f, s.coords)
+				f.close() 
+			#f = open('results/{}_burnin.txt'.format(fname), "a")
+			#f.write(s.coords)
+			#f.close()
+		state = sampler.get_last_sample()
 		sampler.reset()
-
-		sampler.run_mcmc(state, nsteps, progress = True)
-
-		#f = open('results/{}_results.txt'.format(fname), 'w')
-		#f.write(sampler.flatchain)
-		#f.close()
-		np.savetxt('results/{}_results.txt'.format(fname), sampler.flatchain)
+		acl_all = []
+		old_acl = np.inf
+		for n, s in enumerate(sampler.sample(state, iterations = nburn)):
+			with open('results/{}_{}_results.txt'.format(fname, n), 'ab') as f:
+				f.write(b'\n')
+				np.savetxt(f, s.coords)
+				f.close()
+			acl = s.get_autocorr_time(tol = 0)
+			macl = np.mean(acl)
+			
+			with open('results/{}_autocorr.txt'.format(fname), 'ab') as f:
+				f.write(b'\n')
+				np.savetxt(f, macl)
+				f.close()
+			
+			converged = np.all(acl * 100 < sampler.iteration)
+			converged &= np.all(np.abs(old_acl - acl) / acl < 0.01)
+			if converged:
+				break
+			old_acl = acl
+			#f = open('results/{}_results.txt'.format(fname), 'a')
+			#f.write(s.coords)
+			#f.close()
+		#np.savetxt('results/{}_results.txt'.format(fname), sampler.flatchain)
 
 	print("Mean acceptance fraction: {0:.3f}".format(np.mean(sampler.acceptance_fraction)))
-	print("Mean autocorrelation time: {0:.3f} steps".format(np.mean(sampler.get_autocorr_time())))
 
 	for i in range(ndim):
 		plt.figure(i)
@@ -1195,7 +1213,7 @@ def main():
 
 	nspec, ndust = 2, 0
 
-	nwalkers, nsteps, ndim, nburn, broadening = 96, 1, 6, 1, 3000
+	nwalkers, nsteps, ndim, nburn, broadening = 240, 100, 6, 100, 3000
 
 	# a = mft.run_mcmc(nwalkers, data_wl, data_spec, [min(data_wl), max(data_wl)], [4500,3200], [4, 4])
 
