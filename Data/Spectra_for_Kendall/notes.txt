@@ -1,0 +1,2 @@
+Here's the spectra for HP Tau/G3, Hubble 4, and FF Tau
+Hp Tau G3 was taken really close to the edge of the IFU FOV because the person observing got confused with Hp Tau G2. I have scaled the longer wavelengths by ~5% to match other spectra of the star I had (the PSF is bigger at longer wavelengths). At the noise level of the data it should be totally fine though. 

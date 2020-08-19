@@ -1,0 +1,60 @@
+#Kendall Sullivan
+#last edited March 3 2019
+
+#line list to cut out emission lines with the spectral fitting code
+#all lines are in microns (sorry, optical folks)
+#compiled from Adam's 2009 wide binaries paper, some of Suzan Edwards' papers, and some stuff I know
+
+#Hydrogen
+Paschen		4-3 	1.87561
+Paschen 	5-3 	1.28216 #pa beta
+Paschen 	6-3 	1.09411
+Paschen 	7-3 	1.00521
+Paschen 	8-3 	0.95486
+Paschen 	9-3 	0.92315
+Paschen 	10-3 	0.90174
+Paschen 	11-3 	0.88652
+Paschen 	12-3 	0.87529
+Paschen 	13-3 	0.86674
+Paschen 	14-3 	0.86008
+Paschen 	15-3 	0.85477
+Paschen 	16-3 	0.85048
+Paschen 	17-3 	0.84696
+Paschen 	18-3 	0.84403
+Brackett 	5-4 	4.05226
+Brackett 	6-4 	2.62587
+Brackett 	7-4 	2.16612 #br gamma
+Brackett 	8-4 	1.94509
+Brackett 	9-4 	1.81791
+Brackett 	10-4 	1.73669
+Brackett 	11-4 	1.68111
+Brackett 	12-4 	1.64117
+Brackett 	13-4 	1.61137
+Brackett 	14-4 	1.58849
+Brackett 	15-4 	1.57050
+Brackett 	16-4 	1.55607
+Brackett 	17-4 	1.54431
+Brackett 	18-4 	1.53460
+Brackett 	19-4 	1.52647
+Brackett 	20-4 	1.51960
+Brackett 	21-4 	1.51374
+Balmer		3-2	0.65646 #h alpha
+Balmer		4-2	0.48627
+Balmer		5-2	0.43416
+Balmer		6-2	0.41029
+Balmer		7-2	0.39711
+Balmer		8-2	0.38901
+Balmer		9-2	0.38364
+Balmer		10-2	0.37989
+Balmer		11-2	0.37717
+Balmer		12-2	0.37512
+
+#ca infrared triplet
+Ca 		1-1	0.8498 
+Ca		2-2	0.8542
+Ca		3-3	0.8662
+
+#Helium
+He		1-1	1.0830
+He		1-1	0.5876
+He		1-1	0.6678
