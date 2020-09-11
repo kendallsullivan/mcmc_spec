@@ -22,7 +22,7 @@ Dependencies: numpy, pysynphot, matplotlib, astropy, scipy, PyAstronomy, emcee, 
 """
 
 import numpy as np
-#import pysynphot as ps
+# import pysynphot as ps
 import matplotlib.pyplot as plt
 from astropy.io import fits
 import os 
@@ -444,7 +444,8 @@ def find_model(temp, logg, metal):
 	file = glob('SPECTRA/lte{}-{}0-{}.PHOENIX-ACES-AGSS-COND-2011-HiRes.fits.txt'.format(temp, logg, metal))[0]
 	return file
 
-def get_spec(temp, log_g, reg, metallicity = 0, normalize = False, wlunit = 'aa', pys = False, plot = False, model_dir = 'phoenix', resolution = 3000, reduce_res = True, npix = 3):
+def get_spec(temp, log_g, reg, metallicity = 0, normalize = False, wlunit = 'aa', pys = False, plot = False,\
+	 model_dir = 'phoenix', resolution = 3000, reduce_res = True, npix = 3):
 	"""Creates a spectrum from given parameters, either using the pysynphot utility from STScI or using a homemade interpolation scheme.
 	Pysynphot may be slightly more reliable, but the homemade interpolation is more efficient (by a factor of ~2).
 	
@@ -732,33 +733,167 @@ def get_spec(temp, log_g, reg, metallicity = 0, normalize = False, wlunit = 'aa'
 # plt.show()
 # plt.savefig('test_spec_retrieval.png')
 
-def add_spec(wl, spec, flux_ratio, normalize = True):#, waverange):
+def add_spec(teff, logg, frs, filts, r, normalize = True, mode = 'spec'):#, waverange):
 	"""add spectra together given an array of spectra and flux ratios
 
 	Args: 
-		wl (2-d array): wavelength array (of vectors)
-		spec (2-d array): spectrum array (of vectors), 
-		flux_ratio (array): flux ratio array with len = len(spectrum_array) - 1, where the final entry is the wavelength to normalize at, sand whether or not to normalize (default is True)
+		teff (array): array of temperature values (floats)
+		logg (array): array of log(g) values (floats) 
+		frs (array): Array of flux ratios. if there are more than two stars in a system, enter each filter's flux ratio as a space-separated string, 
+		where the first entry is the primary:secondary, second string is the primary:tertiary, etc. E.g., ['0.5 0.3', '0.3 0.1']
+		filts (array): Array of strings specifying which filters to use to normalize with. \
+		Supported systems are 2MASS, Bessell, Cousins, Johnson, Landolt, SDSS, and Stromgren.\
+		For standard UBVRIJHK defaults to Johnson (UBVRI) and Bessell (JHK). Should be entered as, e.g., 'Johnson, U'. Not case sensitive.
+		range (array): minimum and maximum limits for the spectrum, in units of microns
 		normalize (boolean): Normalize the spectra before adding them (default is True)
+		mode (string): use either photometry ('SED') or spectra + flux ratio(s) ('spec') to return.
 
 	Returns: 
-		spec1 (list): spectra added together with the given flux ratio
+		wl, spec (tuple): wavelength and spectrum (or central wavelength and synthetic photometry) for a spectrum 
 
 	"""
-	if len(flux_ratio) > 1:
-		wl_norm = find_nearest(wl[0][:], flux_ratio[-1])
-	else:
-		wl_norm = find_nearest(wl[0][:], np.mean(wl))
-	spec1 = spec[1][:]
-	for n in range(1, len(spec)-1):
-		spec2 = spec[n+1][:]
-		ratio = spec2[wl_norm]/spec1[wl_norm]
-		num = flux_ratio[n - 1]/ratio
-		spec2 = [spec2[k] * num for k in range(len(spec1))]
-		spec1 = [spec1[k] + spec2[k] for k in range(len(spec1))]
+	if not len(frs) == len(filts):
+		return "Number of flux ratios must be equal to the number of filters!"
+
+	#initialize variables for keeping track of the total minimum and maximum wavelengths requested for all filters
+	tmi, tma = np.inf, 0
+
+	#and initialize lists for keeping track of all the transmission curves and wavelength ranges for all filters
+	wls, tras = [], []
+	
+	#go through the filters and get all the information from the input string
+	for f in filts:
+		#first, we have to figure out what filter this is
+		#make sure it's lowercase
+		f = f.lower()
+		#get the system and filter from the input string
+		try:
+			if ',' in f:
+				sys, fil = f.split(','); sys = sys.strip(); fil = fil.strip()
+			else:
+				fil = f.strip()
+				if f in 'ubvri':
+					sys = 'johnson'
+				elif f in 'jhk':
+					sys = 'bessell'
+
+		except:
+			print('Please format your filter as, e.g., "Johnson, V". The input is case insensitive.')
+			break
+
+		#now get the fits file version of the transmission curve from the "bps" directory
+		#which should be in the same directory as the code
+		filtfile = fits.open('bps/{}_{}_002.fits'.format(sys, fil))[1].data
+
+		t_wl, t_cv = filtfile['WAVELENGTH'], filtfile['THROUGHPUT']
+		#record the wavelength and transmission curve for each filter outside of the loop
+		wls.append(t_wl); tras.append(t_cv)
+
+		#get the wavelength range
+		t_min, t_max = min(t_wl), max(t_wl)
+
+		#and check if it's either the min or max requested - this will define the wavelength for spectral retrieval
+		if t_min < tmi:
+			tmi = t_min 
+		if t_max > tma:
+			tma = t_max
+
+	#get the primary star wavelength array and spectrum 
+	#get an R ~ 10,000 spectrum so that the error is small
+	#the min and max wavelength points will be in Angstroms so we need to make them microns for the function call
+	pri_wl, pri_spec = get_spec(teff[0], logg[0], [min(min(r), tmi/1e4) - 5e-4, max(max(r), tma/1e4) + 5e-4], normalize = True, resolution = 10000)
+
+	#initialize a fancy plot 
+	#the first row will be the "observed" spectrum for each filter, while the second row will be the original primary star spectrum
+	#with the transmission curves overlaid as color
+	# fig, [ax1, ax2] = plt.subplots(nrows = 2, sharex = True)
+
+	# for n in range(len(filts)):
+	# 	ax2.axvspan(min(wls[n]), max(wls[n]), label = filts[n], alpha = 0.5)
+	# ax2.plot(pri_wl, pri_spec)
+	# ax2.legend()
+
+	#now we need to get the secondary (and possibly higher-order multiple) spectra
+	#given the way the spectral retrieval code works, as long as the wavelength range is the same the spectra will be on the same grid
+	#so I'm just going to stack them with the primary wavelength and spectrum - going to save the wavelength just in case I need to troubleshoot later
+	for n in range(1, len(teff)):
+		sec_wl, sec_spec = get_spec(teff[n], logg[n], [min(min(r), tmi/1e4) - 5e-4, max(max(r), tma/1e4) + 5e-4], normalize = True, resolution = 10000)
+
+		pri_wl = np.row_stack((pri_wl, sec_wl)); pri_spec = np.row_stack((pri_spec, sec_spec))
+
+	#define an array to hold all my "instrumental" fluxes
+	mags = np.zeros((len(filts), len(teff)))
+
+	#loop through each filter 
+	for n in range(len(filts)):
+		#and get the wavelength range and transmission curve
+		ran, tm = wls[n], tras[n]
+		#pick out the region of stellar spectrum that matches the curve
+		w = pri_wl[0][np.where((pri_wl[0] < max(ran)) & (pri_wl[0] >= min(ran)))]
+		#and interpolate the transmission curve so that it matches the stellar spectral resolution
+		intep = interp1d(ran, tm)
+		tran = intep(w)
+		#now for each star
+		for k in range(len(teff)):
+			#pick out the spectrum over the appropriate region
+			s = pri_spec[k][np.where((pri_wl[0] < max(ran)) & (pri_wl[0] >= min(ran)))]
+			t_spec = [s[p] * tran[p] for p in range(len(s))]
+			# ax1.plot(w, t_spec, label = filts[n])
+			#put it through the filter by multiplying by the transmission, then integrate to finally get the instrumental flux
+			m = np.trapz(t_spec, w)
+			#and add it to the array in the appropriate place for this star and filter
+	# 		mags[n][k] = m
+	# ax1.legend()
+	# plt.tight_layout()
+	# plt.savefig('spectrum_check.png')
+
+	if mode == 'sed' or mode == 'SED':
+		#Need to multiply each instrumental flux by the correct flux ratio, then add them to get an unresolved magnitude
+		#develop this fully later
+		pass
+	elif mode == 'spec':
+		#don't allow use with more than one filter
+		if len(filts) > 1:
+			print('Can\'t use spectral mode with more than 1 flux ratio')
+			return
+
+		# fig, ax = plt.subplots()
+		# ax.plot(pri_wl[0], pri_spec[0], label = 'primary')
+		#first, measure the "intrinsic" flux ratio
+		for n in range(1, len(teff)):
+			init_fr = mags[0][n]/mags[0][0]
+			#and read in the flux ratio from the given array
+			#if there are more than two stars, do some string comprehension to find the right number
+			try:
+				new_fr = float(frs[0].split(' ')[n - 1])
+			#if that doesn't work (because there's no space in the string), just read in the single value - this is what will happen for a binary
+			except:
+				new_fr = float(frs[0])
+
+			#now, take the ratio of the two: We want to divide the secondary spectrum by the intrinsic flux ratio (moving it to a value of 1), then divide by the 
+			#assigned flux ratio
+			#this gives it the correct normalization using the measured flux ratio
+			pri_spec[n] = [s * new_fr/init_fr for s in pri_spec[n]]
+
+		spec1 = pri_spec[0]
+		for n in range(1, len(teff)):
+			spec1 += pri_spec[n]
+
+		# #I also want to plot the two newly normalized spectra, the two flux ratios, and the non-normalized final composite spectrum 
+
+		# ax.plot(pri_wl[1], pri_spec[1], label = 'secondary')
+		# ax.plot(pri_wl[0], spec1, alpha = 0.5, label = 'composite')
+		# ax.plot(pri_wl[0], spec1/max(spec1), label = 'normalized composite')
+		# ax.scatter([np.mean(wls), np.mean(wls), np.mean(wls)], [mags[0][0]/mags[0][0], mags[0][1]/mags[0][0], np.sum(mags[0])/mags[0][0]], label = 'synth. phot.')
+		# ax.set_xlabel('wavelength (A)')
+		# ax.set_ylabel('relative flux')
+		# ax.legend(loc = 'best')
+		# plt.tight_layout()
+		# plt.savefig('synth_phot_check.png')
+
 	if normalize == True:
-	#normalize and return
-		spec1 = spec1/max(spec1)
+		spec1/= max(spec1)
+
 	return spec1
 
 def make_bb_continuum(wl, spec, dust_arr, wl_unit = 'um'):
@@ -793,7 +928,8 @@ def make_bb_continuum(wl, spec, dust_arr, wl_unit = 'um'):
 			spec = [spec[n] + pl[n] for n in range(len(pl))]
 	return spec
 
-def fit_spec(n_walkers, wl, flux, reg, t_guess, lg_guess, extinct_guess, fr_guess, metal_guess = 0, dust_guess = 0, wu='aa', burn = 100, cs = 10, steps = 200, dust = False, pysyn = False, conv = True):
+def fit_spec(n_walkers, wl, flux, reg, t_guess, lg_guess, extinct_guess, fr_guess, metal_guess = 0, dust_guess = 0, wu='aa',\
+ burn = 100, cs = 10, steps = 200, dust = False, pysyn = False, conv = True):
 	"""Does an MCMC to fit a combined model spectrum to an observed single spectrum.
 	guess_init and sig_init should be dictionaries of component names and values for the input guess and the 
 	prior standard deviation, respectively. 
@@ -807,7 +943,8 @@ def fit_spec(n_walkers, wl, flux, reg, t_guess, lg_guess, extinct_guess, fr_gues
 		flux (list): spectrum array
 		reg (list): Two value array with start and end points for fitting.
 		fr (list): flux ratio array. Value1 is flux ratio, value2 is location in the spectrum of value1, etc.
-		guess_init (dictionary): dictionary of component names and values for the input guess. The code will expect an dictionary with values for temperature ('t'), log g ('lg'), extinction ('extinct'), and dust ('dust').
+		guess_init (dictionary): dictionary of component names and values for the input guess. \
+			The code will expect an dictionary with values for temperature ('t'), log g ('lg'), extinction ('extinct'), and dust ('dust').
 		sig_init (dictionary): A dictionary with corresponding standard deviations for each input guess. Default is 200 for temperature, 0.2 for log(g)
 		wu (string): wavelength unit. currently supports 'aa' or 'um'. Default: "um".
 		burn (int): how many initial steps to discard to make sure walkers are spread out. Default: 100.
@@ -943,7 +1080,7 @@ def run_mcmc(walk, w, flux, regg, values, steps = 200, burn = 100, chi = 10):
 
 	return
 
-def loglikelihood(p0, nspec, ndust, data, broadening, r, w = 'aa', pysyn = False, dust = False, norm = True):
+def loglikelihood(p0, fr, nspec, ndust, data, broadening, r, w = 'aa', pysyn = False, dust = False, norm = True, mode = 'spec'):
 	"""The natural logarithm of the joint likelihood. 
 	Set to the chisquare value. (we want uniform acceptance weighted by the significance)
 	
@@ -955,13 +1092,15 @@ def loglikelihood(p0, nspec, ndust, data, broadening, r, w = 'aa', pysyn = False
 		nspec (int): number of spectra/stars
 		ndust (int): number of dust continuum components
 		data (list): the set of data/observations
-		flux_ratio (array): set of flux ratios with corresponding wavelength value for location of ratio
+		fr (array): must contain two arrays: first, a list of flux ratios, \
+			second, a list of filter names, with system and wavelength separated by a comma (e.g., 'cousins, r').
 		broadening (int): The instrumental resolution of the spectra
 		r (list): region to use when calculating liklihood
 		w (string): Wavelength unit, options are "aa" and "um". Default is "aa".
 		pysyn (bool): Use pysynphot to calculate spectra. Default is False.
 		dust (bool): Add dust continuum? Default is False.
 		norm (bool): Normalize spectra when fitting. Default is True.
+		mode (string): do calculation using only synthetic photometry ('SED') or a spectrum with flux ratio(s) ('spec')
 
 	Returns: 
 		cs (float): a reduced chi square value corresponding to the quality of the fit.
@@ -971,43 +1110,54 @@ def loglikelihood(p0, nspec, ndust, data, broadening, r, w = 'aa', pysyn = False
 		To do: fit for broadening or vsini.
 
 	"""
-	le = len(data)
+	# le = len(data)
 
-	wl = np.zeros(le)
-	spec = np.zeros(le)
-	
-	flux_ratio = p0[nspec*2]
+	# wl = np.zeros(le)
+	# spec = np.zeros(le)
 
 	#print('getting spectra')
-	for n in range(nspec):
-		if len(p0) == nspec:
-			lg = 4
-		else:
-			lg = p0[nspec + n]
+	# for n in range(nspec):
+	# 	if len(p0) == nspec:
+	# 		lg = 4
+	# 	else:
+	# 		lg = p0[nspec + n]
 
-		ww, spex = get_spec(p0[n], lg, normalize = norm, reg = r, wlunit = w, pys = pysyn)
+	# 	ww, spex = get_spec(p0[n], lg, normalize = norm, reg = r, wlunit = w, pys = pysyn)
 
-		wl1 = np.linspace(min(ww), max(ww), le)
+	# 	wl1 = np.linspace(min(ww), max(ww), le)
 
-		if len(spex) == 0:
-			spex = np.ones(len(ww))
+	# 	if len(spex) == 0:
+	# 		spex = np.ones(len(ww))
 
-		#print(le, np.shape(ww), np.shape(spex))
-		intep = scipy.interpolate.interp1d(ww, spex)
-		spec1 = intep(wl1)
+	# 	#print(le, np.shape(ww), np.shape(spex))
+	# 	intep = scipy.interpolate.interp1d(ww, spex)
+	# 	spec1 = intep(wl1)
 
-		wl = np.vstack((wl, wl1))
-		spec = np.vstack((spec, spec1))
+	# 	wl = np.vstack((wl, wl1))
+	# 	spec = np.vstack((spec, spec1))
 
-	test_spec = add_spec(wl, spec, [flux_ratio, np.mean(wl)])
+	# if len(fr) == 1:
+	# 	test_spec = add_spec(wl, spec, [fr, np.mean(wl)])
+	# else:
+	# 	test_spec = add_spec(wl, spec, fr)
 
-	test_spec = extinct(wl[:][1], test_spec, p0[nspec * 2 + 1])
+	#print('creating composite spectrum')
+	wl, spec = add_spec(p0[0:nspec], p0[nspec:2*nspec], fr[0], fr[1], r, mode = mode)
+
+	if mode == 'spec':
+		wl, spec = wl[np.where((wl > min(r)) & (wl < max(r)))], spec[np.where((wl > min(r)) & (wl < max(r)))]
+
+	test_spec = extinct(wl, spec, p0[nspec * 2])
 
 	if dust == True:
-		test_spec = make_bb_continuum([wl[:][1], test_spec], p0[2 * nspec + 2: -1], wl_unit = w)
+		test_spec = make_bb_continuum([wl, test_spec], p0[2 * nspec + 1: -1], wl_unit = w)
 
-	test_wl, test_spec = broaden(wl[:][1], test_spec, broadening)
-	ic = chisq(test_spec, data, np.std(data))
+	test_wl, test_spec = broaden(wl, test_spec, broadening)
+
+	intep = interp1d(test_wl, test_spec)
+	it = intep(data[0][:])
+
+	ic = chisq(test_spec, data[1][:], np.std(data[1][:]))
 
 	init_cs = np.sum(ic)/len(ic)
 
@@ -1020,22 +1170,22 @@ def loglikelihood(p0, nspec, ndust, data, broadening, r, w = 'aa', pysyn = False
 def logprior(p0, nspec, ndust):
 	temps = p0[0:nspec]
 	lgs = p0[nspec:2 * nspec]
-	fr = p0[2*nspec]
-	extinct = p0[2*nspec + 1]
+	extinct = p0[2*nspec]
 
 	if ndust > 0:
-		dust = p0[2 * nspec + 2:]
+		dust = p0[2 * nspec + 1:]
 	
-	if any(t > 10000 for t in temps) or any(t < 2300 for t in temps) or any(l < 3 for l in lgs) or any(l > 5 for l in lgs):
+	if extinct < 0 or extinct > 5 or any(t > 5000 for t in temps) or any(t < 2300 for t in temps) or any(l < 3 for l in lgs) or any(l > 5 for l in lgs):
 		return -np.inf
 	else:
 		return 0
 
-def logposterior(p0, nspec, ndust, data, broadening, r, wu = 'aa', pysyn = False, dust = False, norm = True):
+def logposterior(p0, fr, nspec, ndust, data, broadening, r, wu = 'aa', pysyn = False, dust = False, norm = True):
 	"""The natural logarithm of the joint posterior.
 
 	Args:
-		p0 (list): a sample containing individual parameter values. Then p0[0: n] = temp, p0[n : 2n] = lg, p0[2n+1] = flux ratio, p0[2n + 2] = extinction, p0[2n+3:-1] = dust temps
+		p0 (list): a sample containing individual parameter values. Then p0[0: n] = temp, p0[n : 2n] = lg, p0[2n+1] = flux ratio,\
+			 p0[2n + 2] = extinction, p0[2n+3:-1] = dust temps
 		nspec (int): number of spectra/stars
 		ndust (int): number of dust continuum components
 		data (list): the set of data/observations
@@ -1062,12 +1212,12 @@ def logposterior(p0, nspec, ndust, data, broadening, r, wu = 'aa', pysyn = False
 		return -np.inf
 
 	else:
-		lh = loglikelihood(p0, nspec, ndust, data, broadening, r, w = wu, pysyn = False, dust = False, norm = True)
+		lh = loglikelihood(p0, fr, nspec, ndust, data, broadening, r, w = wu, pysyn = False, dust = False, norm = True)
 		# return the likeihood times the prior (log likelihood plus the log prior)
 		return lp + lh
 
 
-def run_emcee(fname, nwalkers, nsteps, ndim, nburn, pos, nspec, ndust, data, broadening, r, nthin=10, w = 'aa', pys = False, du = False, no = True, which='em'):
+def run_emcee(fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndust, data, broadening, r, nthin=10, w = 'aa', pys = False, du = False, no = True, which='em'):
 	"""Run the emcee code to fit a spectrum 
 
 	Args:
@@ -1128,7 +1278,7 @@ def run_emcee(fname, nwalkers, nsteps, ndim, nburn, pos, nspec, ndust, data, bro
 			pool.wait()
 			sys.exit(0)
 
-		sampler = emcee.EnsembleSampler(nwalkers, ndim, logposterior, threads=nwalkers, args=[nspec, ndust, data, broadening, r], \
+		sampler = emcee.EnsembleSampler(nwalkers, ndim, logposterior, threads=nwalkers, args=[fr, nspec, ndust, data, broadening, r], \
 		kwargs={'pysyn': pys, 'dust': du, 'norm':no}, pool = pool)
 		
 		for n, s in enumerate(sampler.sample(pos, iterations = nburn)):
@@ -1141,25 +1291,24 @@ def run_emcee(fname, nwalkers, nsteps, ndim, nburn, pos, nspec, ndust, data, bro
 			#f.close()
 		state = sampler.get_last_sample()
 		sampler.reset()
-		acl_all = []
 		old_acl = np.inf
 		for n, s in enumerate(sampler.sample(state, iterations = nburn)):
 			with open('results/{}_{}_results.txt'.format(fname, n), 'ab') as f:
 				f.write(b'\n')
 				np.savetxt(f, s.coords)
 				f.close()
-			acl = s.get_autocorr_time(tol = 0)
+			acl = sampler.get_autocorr_time(tol = 0)
+			print(acl)
 			macl = np.mean(acl)
 			
-			with open('results/{}_autocorr.txt'.format(fname), 'ab') as f:
-				f.write(b'\n')
-				np.savetxt(f, macl)
+			with open('results/{}_autocorr.txt'.format(fname), 'a') as f:
+				f.write(str(macl) + '\n')
 				f.close()
 			
-			converged = np.all(acl * 100 < sampler.iteration)
-			converged &= np.all(np.abs(old_acl - acl) / acl < 0.01)
-			if converged:
-				break
+			# converged = np.all(acl * 100 < sampler.iteration)
+			# converged &= np.all(np.abs(old_acl - acl) / acl < 0.01)
+			# if converged:
+			# 	break
 			old_acl = acl
 			#f = open('results/{}_results.txt'.format(fname), 'a')
 			#f.write(s.coords)
@@ -1193,13 +1342,13 @@ def run_emcee(fname, nwalkers, nsteps, ndim, nburn, pos, nspec, ndust, data, bro
 
 
 def main():
-	data_wl, data_spec = np.genfromtxt('Data/Spectra_for_Kendall/fftau_wifes_spec.csv', delimiter=',', unpack = True)
+	data_wl, data_spec = np.genfromtxt('Data/synth_spec.txt', unpack = True)#np.genfromtxt('Data/Spectra_for_Kendall/fftau_wifes_spec.csv', delimiter=',', unpack = True)
 
 	data_wl = data_wl[1:-1]/1e4
 	data_spec = data_spec[1:-1]
 
-	fig, ax = plt.subplots(2, sharex = True)
-	ax[0].plot(data_wl, data_spec, label = "old", color='g')
+	# fig, ax = plt.subplots(2, sharex = True)
+	# ax[0].plot(data_wl, data_spec, label = "old", color='g')
 
 	newspec = rmlines(data_wl, data_spec)
 
@@ -1213,18 +1362,18 @@ def main():
 
 	nspec, ndust = 2, 0
 
-	nwalkers, nsteps, ndim, nburn, broadening = 240, 100, 6, 100, 3000
+	nwalkers, nsteps, ndim, nburn, broadening = 96, 150, 5, 20, 3000
 
 	# a = mft.run_mcmc(nwalkers, data_wl, data_spec, [min(data_wl), max(data_wl)], [4500,3200], [4, 4])
 
-	#t1, t2, log(g)1, log(g)2, flux ratio, extinction
-	pos = [4200, 3500, 4, 4, 0.4, 2.5]
+	#t1, t2, log(g)1, log(g)2, extinction
+	pos = [4200, 3500, 4, 4, 0.1]
 	#
-	p0 = emcee.utils.sample_ball(pos, [200, 200, 0.1, 0.1, 0.05, 0.05], size=nwalkers)
+	p0 = emcee.utils.sample_ball(pos, [200, 200, 0.1, 0.1, 0.05], size=nwalkers)
 
-	#run_mcmc(nwalkers, data_wl, newspec, [min(data_wl), max(data_wl)], p0, steps = nsteps, burn = nburn, conv = False)
-	a = run_emcee('run1_small', nwalkers, nsteps, ndim, nburn, p0, nspec, ndust, data, broadening, [min(data_wl), max(data_wl)],\
-		 nthin=2, w = 'aa', pys = False, du = False)
+	# run_mcmc(nwalkers, data_wl, newspec, [min(data_wl), max(data_wl)], p0, steps = nsteps, burn = nburn, conv = True, cs = 1.5)
+	a = run_emcee('run1_small', nwalkers, nsteps, ndim, nburn, p0, [[0.4], ['johnson, r']], nspec, ndust, data, broadening, [min(data_wl), max(data_wl)],\
+		nthin=2, w = 'aa', pys = False, du = False)
 
 if __name__ == "__main__":
 	main()
