@@ -444,8 +444,7 @@ def find_model(temp, logg, metal):
 	file = glob('SPECTRA/lte{}-{}0-{}.PHOENIX-ACES-AGSS-COND-2011-HiRes.fits.txt'.format(temp, logg, metal))[0]
 	return file
 
-def get_spec(temp, log_g, reg, metallicity = 0, normalize = False, wlunit = 'aa', pys = False, plot = False,\
-	 model_dir = 'phoenix', resolution = 3000, reduce_res = True, npix = 3):
+def get_spec(temp, log_g, reg, metallicity = 0, normalize = False, wlunit = 'aa', pys = False, plot = False, model_dir = 'phoenix', resolution = 3000, reduce_res = True, npix = 3):
 	"""Creates a spectrum from given parameters, either using the pysynphot utility from STScI or using a homemade interpolation scheme.
 	Pysynphot may be slightly more reliable, but the homemade interpolation is more efficient (by a factor of ~2).
 	
@@ -708,31 +707,6 @@ def get_spec(temp, log_g, reg, metallicity = 0, normalize = False, wlunit = 'aa'
 
 		return spwave, spflux
 
-# t = time.time()
-# a, b = get_spec(2966, 3.8, [0.51, 0.5350], normalize = True, resolution = 34000, reduce_res = True)
-# print('spec retrieval time', time.time() - t)
-# print(len(a), len(b))
-# c, d = get_spec(3410, 4, [0.65, 0.66], normalize = False, resolution = 3000, reduce_res = False)
-# e,f = get_spec(3410, 4, [0.65, 0.66], normalize = False, resolution = 3000, reduce_res = True)
-
-# g, h = get_spec(3510, 4, [0.65, 0.66], normalize = False, resolution = 40000, reduce_res = False)
-# i, j = get_spec(3510, 4, [0.65, 0.66], normalize = False, resolution = 3000, reduce_res = False)
-# k,l = get_spec(3510, 4, [0.65, 0.66], normalize = False, resolution = 3000, reduce_res = True)
-
-# plt.figure()
-# plt.plot(a,b, label = '3400, raw data')
-# plt.plot(c,d, label = '3400, broadened')
-# plt.plot(e,f, label = '3400, reduced')
-
-# plt.plot(g,h, label = '3500, raw data')
-# plt.plot(i,j, label = '3500, broadened')
-# plt.plot(k,l, label = '3500, reduced')
-
-
-# plt.legend(loc = 'best')
-# plt.show()
-# plt.savefig('test_spec_retrieval.png')
-
 def add_spec(teff, logg, frs, filts, r, normalize = True, mode = 'spec'):#, waverange):
 	"""add spectra together given an array of spectra and flux ratios
 
@@ -842,7 +816,7 @@ def add_spec(teff, logg, frs, filts, r, normalize = True, mode = 'spec'):#, wave
 			#put it through the filter by multiplying by the transmission, then integrate to finally get the instrumental flux
 			m = np.trapz(t_spec, w)
 			#and add it to the array in the appropriate place for this star and filter
-	# 		mags[n][k] = m
+			mags[n][k] = m
 	# ax1.legend()
 	# plt.tight_layout()
 	# plt.savefig('spectrum_check.png')
@@ -894,7 +868,7 @@ def add_spec(teff, logg, frs, filts, r, normalize = True, mode = 'spec'):#, wave
 	if normalize == True:
 		spec1/= max(spec1)
 
-	return spec1
+	return pri_wl[0], spec1
 
 def make_bb_continuum(wl, spec, dust_arr, wl_unit = 'um'):
 	"""Adds a dust continuum to an input spectrum.
@@ -927,6 +901,14 @@ def make_bb_continuum(wl, spec, dust_arr, wl_unit = 'um'):
 
 			spec = [spec[n] + pl[n] for n in range(len(pl))]
 	return spec
+
+def fit_prior(temps, lgs, extinct, t_prior, lg_prior, ext_prior):
+	if extinct < 0 or extinct > 5 or any(t > 5000 for t in temps) or any(t < 2300 for t in temps) or any(l < 3 for l in lgs) or any(l > 5 for l in lgs)\
+	or temps[0] < temps[1]:
+		return -np.inf
+
+	else:
+		return 0
 
 def fit_spec(n_walkers, wl, flux, reg, t_guess, lg_guess, extinct_guess, fr_guess, metal_guess = 0, dust_guess = 0, wu='aa',\
  burn = 100, cs = 10, steps = 200, dust = False, pysyn = False, conv = True):
@@ -961,14 +943,14 @@ def fit_spec(n_walkers, wl, flux, reg, t_guess, lg_guess, extinct_guess, fr_gues
 	else:
 		metal = 0
 
-	#make some initial guess' primary and secondary spectra, then add them
-	wave1, spec1 = get_spec(t_guess[0], lg_guess[0], [reg[0] - 0.005, reg[1] + 0.005], metallicity = metal, wlunit = wu, normalize = True, resolution = 10000)
-	wave2, spec2 = get_spec(t_guess[1], lg_guess[1], [reg[0] - 0.005, reg[1] + 0.005], metallicity = metal, wlunit = wu, normalize = True, resolution = 10000)
+	# #make some initial guess' primary and secondary spectra, then add them
+	# wave1, spec1 = get_spec(t_guess[0], lg_guess[0], [reg[0] - 0.005, reg[1] + 0.005], metallicity = metal, wlunit = wu, normalize = True, resolution = 10000)
+	# wave2, spec2 = get_spec(t_guess[1], lg_guess[1], [reg[0] - 0.005, reg[1] + 0.005], metallicity = metal, wlunit = wu, normalize = True, resolution = 10000)
 
-	intep = interp1d(wave2, spec2)
-	spec2 = intep(wave1)
+	# intep = interp1d(wave2, spec2)
+	# spec2 = intep(wave1)
 
-	init_cspec = add_spec([wave1, wave1], [spec1, spec2], [fr_guess, np.mean(wave1)])
+	wave1, init_cspec = add_spec(t_guess, lg_guess, fr_guess[0], fr_guess[1], reg)
 
 	init_cspec = extinct(wave1, init_cspec, extinct_guess)
 
@@ -990,9 +972,9 @@ def fit_spec(n_walkers, wl, flux, reg, t_guess, lg_guess, extinct_guess, fr_gues
 	savechi = []
 
 	#sp will hang on to the tested set of parameters at the end of each iteration
-	sp = [t_guess, lg_guess, [extinct_guess], [fr_guess], [dust_guess]]
+	sp = [t_guess, lg_guess, [extinct_guess], [dust_guess]]
 
-	si = [[200, 200], [0.1, 0.1], [0.05], [0.05], [0]]
+	si = [[200, 200], [0.1, 0.1], [0.05], [0]]
 	var_par = sp
 	gi = sp
 
@@ -1002,22 +984,25 @@ def fit_spec(n_walkers, wl, flux, reg, t_guess, lg_guess, extinct_guess, fr_gues
 		vp = np.random.randint(0, len(var_par))
 		var_par[vp] = make_varied_param(var_par[vp], si[vp])
 
-		if var_par[3][0] > 0 and var_par[0][0] > 2000 and var_par[0][0] < 6000 and var_par[0][1] > 2000 and var_par[0][1] < 6000\
+		if var_par[2][0] > 0 and var_par[0][0] > 2000 and var_par[0][0] < 6000 and var_par[0][1] > 2000 and var_par[0][1] < 6000\
 		and var_par[1][0] > 3 and var_par[1][0] < 5 and var_par[1][1] > 3 and var_par[1][1] < 5 and var_par[0][1] < var_par[0][0]:
 
 			#make spectrum from varied parameters
-			test_wave1, test_spec1 = get_spec(var_par[0][0], var_par[1][0], [reg[0] - 0.005, reg[1] + 0.005], wlunit = wu, resolution = 10000)
-			test_wave2, test_spec2 = get_spec(var_par[0][1], var_par[1][1], [reg[0] - 0.005, reg[1] + 0.005], wlunit = wu, resolution = 10000)
+			# test_wave1, test_spec1 = get_spec(var_par[0][0], var_par[1][0], [reg[0] - 0.005, reg[1] + 0.005], wlunit = wu, resolution = 10000)
+			# test_wave2, test_spec2 = get_spec(var_par[0][1], var_par[1][1], [reg[0] - 0.005, reg[1] + 0.005], wlunit = wu, resolution = 10000)
 
-			intep = interp1d(test_wave2, test_spec2)
-			test_spec2 = intep(test_wave1)
+			# intep = interp1d(test_wave2, test_spec2)
+			# test_spec2 = intep(test_wave1)
 
-			test_cspec = add_spec([test_wave1, test_wave1], [test_spec1, test_spec2], var_par[2])
+			# test_cspec = add_spec([test_wave1, test_wave1], [test_spec1, test_spec2], var_par[2])
+
+			test_wave1, test_cspec = add_spec(var_par[0], var_par[1], fr_guess[0], fr_guess[1], reg)
+
 
 			if dust == True:
-				test_cspec = add_dust(test_cspec, var_par[4])
+				test_cspec = add_dust(test_cspec, var_par[3])
 
-			test_cspec = extinct(test_wave1, test_cspec, var_par[3][0])
+			test_cspec = extinct(test_wave1, test_cspec, var_par[2][0])
 
 			intep = interp1d(test_wave1, test_cspec)
 			test_cspec = intep(wl)
@@ -1027,18 +1012,19 @@ def fit_spec(n_walkers, wl, flux, reg, t_guess, lg_guess, extinct_guess, fr_gues
 			test_cs = np.sum(tc)/len(tc)
 
 		else:
-			test_cs = np.inf
+			vp = np.random.randint(0, len(var_par))
+			var_par[vp] = make_varied_param(var_par[vp], si[vp])
 
-		lh = np.exp(-1 * (init_cs)/2 + (test_cs)/2)
+		lh = test_cs
 
 		u = np.random.uniform(0, 1)
 
-		if chi > test_cs and lh > u and test_cs < np.inf:
+		if test_cs/chi > u:
 			gi[vp] = var_par[vp]
 			chi = test_cs 
 
 		f = open('results/params{}.txt'.format(n_walkers), 'a')
-		f.write('{} {} {} {} {} {} {}\n'.format(gi[0][0], gi[0][1], gi[1][0], gi[1][1], gi[2][0], gi[3][0], gi[4][0]))
+		f.write('{} {} {} {} {} {}\n'.format(list(gi[0])[0], list(gi[0])[1], list(gi[1])[0], list(gi[1])[0], float(gi[2][0]), float(gi[3][0])))
 		f.close()
 		f = open('results/chisq{}.txt'.format(n_walkers), 'a')
 		f.write('{} {}\n'.format(chi, test_cs))
@@ -1057,9 +1043,9 @@ def fit_spec(n_walkers, wl, flux, reg, t_guess, lg_guess, extinct_guess, fr_gues
 		else:
 			n += 1
 
-	return sp[np.where(savechi == min(savechi))][0]
+	return savechi[-1]
 
-def run_mcmc(walk, w, flux, regg, values, steps = 200, burn = 100, chi = 10):
+def run_mcmc(walk, w, flux, regg, values, fr, steps = 200, burn = 100, chi = 10, conv = True):
 	#use multiple walkers and parallel processing:
 
 	comm = MPI.COMM_WORLD
@@ -1070,9 +1056,9 @@ def run_mcmc(walk, w, flux, regg, values, steps = 200, burn = 100, chi = 10):
 
 	walker_num = comm.scatter(wl, root = 0)
 
-	t1, t2, lg1, lg2, ratio, extinct = values[walker_num]
+	t1, t2, lg1, lg2, extinct = values[walker_num]
 
-	results = fit_spec(walker_num, w, flux, regg, [t1, t2], [lg1, lg2], extinct, ratio, burn = burn, steps = steps, cs = chi)
+	results = fit_spec(walker_num, w, flux, regg, [t1, t2], [lg1, lg2], extinct, fr, burn = burn, steps = steps, cs = chi, conv = conv)
 	out = comm.gather(results, root = 0)
 
 	#print('Writing file')
@@ -1144,8 +1130,8 @@ def loglikelihood(p0, fr, nspec, ndust, data, broadening, r, w = 'aa', pysyn = F
 	#print('creating composite spectrum')
 	wl, spec = add_spec(p0[0:nspec], p0[nspec:2*nspec], fr[0], fr[1], r, mode = mode)
 
-	if mode == 'spec':
-		wl, spec = wl[np.where((wl > min(r)) & (wl < max(r)))], spec[np.where((wl > min(r)) & (wl < max(r)))]
+	# if mode == 'spec':
+	# 	wl, spec = wl[np.where((wl > min(r)*1e4) & (wl < max(r)*1e4))], spec[np.where((wl > min(r)*1e4) & (wl < max(r)*1e4))]
 
 	test_spec = extinct(wl, spec, p0[nspec * 2])
 
@@ -1154,20 +1140,24 @@ def loglikelihood(p0, fr, nspec, ndust, data, broadening, r, w = 'aa', pysyn = F
 
 	test_wl, test_spec = broaden(wl, test_spec, broadening)
 
+	test_wl /= 1e4
 	intep = interp1d(test_wl, test_spec)
-	it = intep(data[0][:])
 
-	ic = chisq(test_spec, data[1][:], np.std(data[1][:]))
+	w, s = data
+	it = intep(w)
+
+	print(np.shape(s), np.shape(it))
+
+	ic = chisq(it, s, np.std(s))
 
 	init_cs = np.sum(ic)/len(ic)
 
 	if np.isnan(init_cs):
-		init_cs = -np.inf
-	return init_cs
+		return -np.inf
+	else:
+		return np.log(init_cs)
 
-# WE ASSUME A UNIFORM PRIOR -- add something more sophisticated eventually
-
-def logprior(p0, nspec, ndust):
+def logprior(p0, nspec, ndust, prior = 0):
 	temps = p0[0:nspec]
 	lgs = p0[nspec:2 * nspec]
 	extinct = p0[2*nspec]
@@ -1175,12 +1165,32 @@ def logprior(p0, nspec, ndust):
 	if ndust > 0:
 		dust = p0[2 * nspec + 1:]
 	
-	if extinct < 0 or extinct > 5 or any(t > 5000 for t in temps) or any(t < 2300 for t in temps) or any(l < 3 for l in lgs) or any(l > 5 for l in lgs):
+	if extinct < 0 or extinct > 5 or any(t > 5000 for t in temps) or any(t < 2300 for t in temps) or any(l < 3 for l in lgs) or any(l > 5 for l in lgs)\
+	or temps[0] < temps[1]:
 		return -np.inf
-	else:
-		return 0
+	elif prior != 0:
+		tprior = prior[:nspec]
+		tpsig = prior[nspec:2*nspec]
+		lprior = prior[2*nspec:3*nspec]
+		lpsig = prior[3*nspec:4*nspec]
+		eprior = prior[4*nspec]
+		epsig = prior[4*nspec+1]
 
-def logposterior(p0, fr, nspec, ndust, data, broadening, r, wu = 'aa', pysyn = False, dust = False, norm = True):
+		pp = []
+		ps = tprior + lprior + [eprior]
+		ss = tpsig + lpsig + [epsig]
+
+		for k, p in enumerate(ps):
+			if p != 0:
+				like = -0.5 * ((p0[k] - p)/ss[k])**2
+				pp.append(like)
+
+		return np.sum(pp)
+
+	else:
+		print('either set your prior to zero or enter an array with [tprior1, tprior2, tsig1, tsig2...] for temp, log(g), and extinction')
+
+def logposterior(p0, fr, nspec, ndust, data, broadening, r, wu = 'aa', pysyn = False, dust = False, norm = True, prior = 0):
 	"""The natural logarithm of the joint posterior.
 
 	Args:
@@ -1204,9 +1214,7 @@ def logposterior(p0, fr, nspec, ndust, data, broadening, r, wu = 'aa', pysyn = F
 		Assuming a uniform prior for now
 
 	"""
-	lp = logprior(p0, nspec, ndust)
-	print('Calculating likelihood')
-
+	lp = logprior(p0, nspec, ndust, prior = prior)
 	# if the prior is not finite return a probability of zero (log probability of -inf)
 	if not np.isfinite(lp):
 		return -np.inf
@@ -1216,8 +1224,7 @@ def logposterior(p0, fr, nspec, ndust, data, broadening, r, wu = 'aa', pysyn = F
 		# return the likeihood times the prior (log likelihood plus the log prior)
 		return lp + lh
 
-
-def run_emcee(fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndust, data, broadening, r, nthin=10, w = 'aa', pys = False, du = False, no = True, which='em'):
+def run_emcee(fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndust, data, broadening, r, nthin=10, w = 'aa', pys = False, du = False, no = True, prior = 0):
 	"""Run the emcee code to fit a spectrum 
 
 	Args:
@@ -1230,7 +1237,7 @@ def run_emcee(fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndust, data,
 		nspec (int): number of spectra to fit to. For a single spectrum fit this would be 1, for a two component fit this should be 2.
 		ndust (int): number of dust continuum components to fit to. (untested)
 		data (list): the spectrum to fit to
-		flux_ratio (list): an array with a series of flux ratios, followed by the wavelength at which they were measured.
+		flux_ratio (list): an array with a subarray of flux ratios, followed by a subarray with the strings of the filter in which they were measured.
 		broadening (float): the instrumental resolution of the input data, or the desired resolution to use to fit.
 		r (list): a two valued array containing the region to fit within, in microns.
 		nthin (int): the sampling rate of walker steps to save. Default is 10.
@@ -1238,7 +1245,6 @@ def run_emcee(fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndust, data,
 		pys (boolean): Whether to use pysynphot for spectral synthesis (if true). Default is False.
 		du (boolean): Whether to fit to dust components. Default is False.
 		no (boolean): Whether to normalize the spectra while fitting. Default is True.
-		which (string): Use an ensemble sampler ('em') or parallel tempered sampling ('pt'). Default is 'em'. More documentation can be found in the emcee docs.
 	
 	Note:
 		This is still in active development and doesn't always work.
@@ -1279,7 +1285,7 @@ def run_emcee(fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndust, data,
 			sys.exit(0)
 
 		sampler = emcee.EnsembleSampler(nwalkers, ndim, logposterior, threads=nwalkers, args=[fr, nspec, ndust, data, broadening, r], \
-		kwargs={'pysyn': pys, 'dust': du, 'norm':no}, pool = pool)
+		kwargs={'pysyn': pys, 'dust': du, 'norm':no, 'prior':prior}, pool = pool)
 		
 		for n, s in enumerate(sampler.sample(pos, iterations = nburn)):
 			with open('results/{}_{}_burnin.txt'.format(fname, n), 'ab') as f:
@@ -1292,13 +1298,13 @@ def run_emcee(fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndust, data,
 		state = sampler.get_last_sample()
 		sampler.reset()
 		old_acl = np.inf
-		for n, s in enumerate(sampler.sample(state, iterations = nburn)):
+		for n, s in enumerate(sampler.sample(state, iterations = nsteps)):
 			with open('results/{}_{}_results.txt'.format(fname, n), 'ab') as f:
 				f.write(b'\n')
 				np.savetxt(f, s.coords)
 				f.close()
 			acl = sampler.get_autocorr_time(tol = 0)
-			print(acl)
+
 			macl = np.mean(acl)
 			
 			with open('results/{}_autocorr.txt'.format(fname), 'a') as f:
@@ -1340,7 +1346,6 @@ def run_emcee(fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndust, data,
 	plt.close()
 	return
 
-
 def main():
 	data_wl, data_spec = np.genfromtxt('Data/synth_spec.txt', unpack = True)#np.genfromtxt('Data/Spectra_for_Kendall/fftau_wifes_spec.csv', delimiter=',', unpack = True)
 
@@ -1356,24 +1361,22 @@ def main():
 	# fig.legend()
 	# plt.savefig('modified_spec.pdf')
 
-	data = np.column_stack((data_wl, newspec))
-
-	cen_wl = data_wl[int(len(data_wl)/2)]
+	data = [data_wl, newspec]
 
 	nspec, ndust = 2, 0
 
-	nwalkers, nsteps, ndim, nburn, broadening = 96, 150, 5, 20, 3000
+	nwalkers, nsteps, ndim, nburn, broadening = 150, 150, 5, 150, 3000
 
 	# a = mft.run_mcmc(nwalkers, data_wl, data_spec, [min(data_wl), max(data_wl)], [4500,3200], [4, 4])
 
 	#t1, t2, log(g)1, log(g)2, extinction
-	pos = [4200, 3500, 4, 4, 0.1]
+	pos = [4200, 3600, 4, 4, 2.1]
 	#
-	p0 = emcee.utils.sample_ball(pos, [200, 200, 0.1, 0.1, 0.05], size=nwalkers)
+	p0 = emcee.utils.sample_ball(pos, [200, 200, 0.1, 0.1, 0.2], size=nwalkers)
 
-	# run_mcmc(nwalkers, data_wl, newspec, [min(data_wl), max(data_wl)], p0, steps = nsteps, burn = nburn, conv = True, cs = 1.5)
+	# run_mcmc(nwalkers, data_wl, newspec, [min(data_wl), max(data_wl)], p0, [[0.4], ['johnson, r']], steps = nsteps, burn = nburn, conv = True, chi = 1.5)
 	a = run_emcee('run1_small', nwalkers, nsteps, ndim, nburn, p0, [[0.4], ['johnson, r']], nspec, ndust, data, broadening, [min(data_wl), max(data_wl)],\
-		nthin=2, w = 'aa', pys = False, du = False)
+		nthin=2, w = 'aa', pys = False, du = False, prior = [4100, 3700, 150, 300, 4, 4, 0.2, 0.2, 2, 0.05])
 
 if __name__ == "__main__":
 	main()
