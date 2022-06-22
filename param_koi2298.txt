@@ -1,0 +1,62 @@
+### PARAMETER FILE FOR MCMC FITTING CODE
+### KEYWORDS DO NOT NEED TO BE IN ORDER
+### BUT THEY MUST RETAIN THEIR NAMES
+### ARRAYS MUST NOT HAVE SPACES
+
+### SETUP ###
+models btsettl				#Which set of model spectra to use
+dirname koi2298				#the directory to write to
+fname 2298 					#the emcee filename
+res 1700 					#spectral resolution
+tmin 3000 					#minimum temperature spectrum to load (K)
+tmax 5500 					#maximum temperature spectrum to load (K)
+lgmin 4					#minimum log(g) value to load
+lgmax 5						#maximum log(g) value to load
+specmin 3000 				#minimum wavelength for spectral read-in (A)
+specmax 30000				#maximum wavelength for spectral read-in (A)
+mask True
+rad_prior True
+
+### DATA INFORMATION ###
+filename Data/koi2298_HET.txt   #path from 'Results' to desired file
+spmin 0.645 					#minimum spectrum in um
+spmax 0.84						#max spectrum in um
+
+
+### PHOTOMETRY INFORMATION ###
+cmag [2.08,1.3]			#contrast magnitudes for the system
+cerr [0.14,0.02]			#contrast error for the system
+cfilt ['lp600','Kp']			#contrast filters for the system
+
+pmag [13.815,13.505,13.355,12.323,11.826,11.735] 	#unresolved magnitudes
+perr [0.1,0.1,0.1,0.026,0.022,0.019]	#unresolved mag error
+pfilt ['sdss,r','sdss,i','sdss,z','j','h','k']			#unresolved mag filters
+
+
+### SYSTEM PARAMETERS ###
+plx 2.0732e-3				#system parallax in arcsec
+plx_err 0.0277e-3 			#parallax error in arcsec
+dist_fit True
+
+av 0.106					#extinction to system in mag
+av_err 0.01 				#extinction error in mag
+
+ra 288.456118
+dec 45.802226
+
+
+### FIT PARAMETERS ###
+# INITIAL MCMC #
+nwalk 150 					#number of walkers to run
+nstep 400					#number of steps to run
+
+# emcee PARAMETERS #
+nspec 2						#number of stars
+ndust 0						#number of disk components
+
+nburn 301					#number of steps for burn-in
+nsteps 15001					#number of steps to sample
+
+## PREVIOUSLY MEASURED VALUES ##
+# IF THERE ARE NONE SET THE VALUES TO ZERO #
+real_values [0,0,0,0,0,0,0,0]
