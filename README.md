@@ -1,1 +1,1 @@
-This code exists to retrieve the best-fit properties (temperature, log(g) (in theory), and radius/radius ratio
+This code exists to retrieve the best-fit properties (temperature, Av, and radius/radius ratio
