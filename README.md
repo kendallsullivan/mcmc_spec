@@ -1,2 +1,1 @@
-# mcmc_spec
-Fit an unresolved spectrum with an MCMC process
+This code exists to retrieve the best-fit properties (temperature, log(g) (in theory), and radius/radius ratio
