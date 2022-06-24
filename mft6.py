@@ -111,17 +111,7 @@ def find_nearest(array, value):
 	return idx
 
 def chisq(model, data, var):
-	"""Calculates chi square values of a model and data with a given variance.
-
-	Args:
-		model (list): model array.
-		data (list): data array. Must have same len() as model array.
-		variance (float or list): Data variance. Defaults to 10.
-
-	Returns: 
-		cs (float): Reduced chi square value.
-
-	"""
+	#calculate chi square value of an model vs. data with a given variance
 	#make sure that the two arrays are comparable
 	#explicitly cast everything 
 	try:
@@ -129,75 +119,9 @@ def chisq(model, data, var):
 	except:
 		print('Data and model must be the same length')
 
-def shift(wl, spec, rv, bcarr, **kwargs):
-	"""for bccorr, use bcarr as well, which should be EITHER:
-	1) the pure barycentric velocity calculated elsewhere OR
-	2) a dictionary with the following entries (all as floats, except the observatory name code, if using): 
-	{'ra': RA (deg), 'dec': dec (deg), 'obs': observatory name or location of observatory, 'date': JD of midpoint of observation}
-	The observatory can either be an observatory code as recognized in the PyAstronomy.pyasl.Observatory list of observatories,
-	or an array containing longitude, latitude (both in deg) and altitude (in meters), in that order.
-
-	To see a list of observatory codes use "PyAstronomy.pyasl.listobservatories()".
-	
-	Args:
-		wl (list): wavelength array
-		spec (list): flux array
-		rv (float): Rotational velocity value
-		bcarr (list): if len = 1, contains a precomputed barycentric velocity. Otherwise, should 
-			be a dictionary with the following properties: either an "obs" keyword and code from pyasl
-			or a long, lat, alt set of floats identifying the observatory coordinates.  
-
-	Returns:
-		barycentric velocity corrected wavelength vector using bccorr().
-
-	"""
-	if len(bcarr) == 1:
-		bcvel = bcarr[0]
-	elif len(bcarr) > 1:
-		if isinstance(bcarr['obs'], str):
-			try:
-				ob = pyasl.observatory(bcarr['obs'])
-			except:
-				print('This observatory code didn\'t work. Try help(shift) for more information')
-			lon, lat, alt = ob['longitude'], ob['latitude'], ob['altitude']
-		if np.isarray(bcarr['obs']):
-			lon, lat, alt = bcarr['obs'][0], bcarr['obs'][1], bcarr['obs'][2]
-		bcvel = pyasl.helcorr(lon, lat, alt, bcarr['ra'], bcarr['dec'], bcarr['date'])[0]
-
-	bc_wl = bccorr(wl, bcvel)
-
-	return bc_wl
-
 def broaden(even_wl, modelspec_interp, res, vsini = 0, limb = 0, plot = False):
 	"""Adds resolution, vsin(i) broadening, taking into account limb darkening.
-
-	Args: 
-		even_wl (list): evenly spaced model wavelength vector
-		modelspec_interp (list): model spectrum vector
-		res (float): desired spectral resolution
-		vsini (float): star vsin(i)
-		limb (float): the limb darkening coeffecient
-		plot (boolean): if True, plots the full input spectrum and the broadened output. Defaults to False.
-
-	Returns:
-		a tuple containing an evenly spaced wavelength vector spanning the width of the original wavelength range, and a corresponding flux vector
-
 	"""
-
-	#regrid by finding the smallest wavelength step 
-	# mindiff = np.inf
-
-	# for n in range(1, len(even_wl)):
-	# 	if even_wl[n] - even_wl[n-1] < mindiff:
-	# 		mindiff = even_wl[n] - even_wl[n-1]
-
-	# #interpolate the input values
-	# it = interp1d(even_wl, modelspec_interp)
-
-	# #make a new wavelength array that's evenly spaced with the smallest wavelength spacing in the input wl array
-	# w = np.arange(min(even_wl), max(even_wl), mindiff)
-
-	# sp = it(w)
 	#do the instrumental broadening and truncate the ends because they get messy
 	broad = pyasl.instrBroadGaussFast(even_wl, modelspec_interp, res, maxsig=5)
 	broad[0:5] = broad[5] 
@@ -205,7 +129,7 @@ def broaden(even_wl, modelspec_interp, res, vsini = 0, limb = 0, plot = False):
 
 	#if I want to impose stellar parameters of v sin(i) and limb darkening, do that here
 	if vsini != 0 and limb != 0:
-		rot = pyasl.rotBroad(even_wl, broad, limb, vsini)#, edgeHandling='firstlast')
+		rot = pyasl.rotBroad(even_wl, broad, limb, vsini)#
 	#otherwise just move on
 	else:
 		rot = broad
@@ -255,8 +179,6 @@ def make_reg(wl, flux, waverange):
 		wavelength and flux vectors within the given range
 
 	"""
-	#find the smallest separation in the wavelength array
-
 	#interpolate the input spectrum
 	wl_interp = interp1d(wl, flux)
 	#make a new wavelength array that's evenly spaced with the minimum spacing
@@ -266,27 +188,14 @@ def make_reg(wl, flux, waverange):
 	#return the new wavelength and flux
 	return np.array(wlslice), np.array(fluxslice)
 
-def interp_2_spec(spec1, spec2, ep1, ep2, val):
-	"""Args: 
-		spec1 (list): first spectrum array (fluxes only)
-		spec2 (list): second spectrum array (fluxes only)
-		ep1 (float): First gridpoint of the value we want to interpolate to.
-		ep2 (float): Second gridpoint of the value we want to interpolate to.
-		val (float): a value between ep1 and ep2 that we wish to interpolate to.
-
-	Returns: 
-		a spectrum without a wavelength parameter
-
-	"""	
+def interp_2_spec(spec1, spec2, ep1, ep2, val):	
 	ret_arr = []
 	#make sure the two spectra are the same length
 	if len(spec1) == len(spec2):
 		#go through the spectra
-		# for n in range(len(spec1)):
-			#the new value is the first gridpoint plus the difference between them weighted by the spacing between the two gridpoints and the desired value.
-			#this is a simple linear interpolation at each wavelength point
+		#the new value is the first gridpoint plus the difference between them weighted by the spacing between the two gridpoints and the desired value.
+		#this is a simple linear interpolation at each wavelength point
 		ret_arr = ((np.array(spec2) - np.array(spec1))/(ep2 - ep1)) * (val - ep1) + np.array(spec1)
-			# ret_arr.append(v)
 		#return the new interpolated flux array
 		return ret_arr
 
@@ -295,16 +204,6 @@ def interp_2_spec(spec1, spec2, ep1, ep2, val):
 		return('the spectra must have the same length')
 
 def make_varied_param(init, sig):
-	"""randomly varies a parameter within a gaussian range based on given std deviation
-
-	Args:
-		init (float): initial value
-		sig (float): std deviation of gaussian to draw from
-
-	Returns: 
-		the varied parameter.
-
-	"""
 	#initialize the variance list to return
 	var = []
 	#loop through the std devs 
@@ -329,19 +228,6 @@ def find_model(temp, logg, metal, models = 'btsettl'):
 	and that the file names take the form "lte{temp}-{log g}-{metallicity}.PHOENIX-ACES-AGSS-COND-2011-HiRes.fits"
 	The file should contain a flux column, where the flux is in units of log(erg/s/cm^2/cm/surface area). There should also be a
 	wavelength file in the spectra directory called WAVE_PHOENIX-ACES-AGSS-COND-2011.fits, with wavelength in Angstroms.
-	THE NEW SPECTRA are from Husser et al 2013.
-
-	Args: 
-		temperature (float): temperature value
-		log(g) (float): log(g) value
-		metallicity (float): Metallicity value
-
-	Note:
-		Values must fall on the grid points of the model grid. Only supports log(g) = 4 with current spectra directory.
-
-	Returns: 
-		file name of the phoenix model with the specified parameters.
-
 	"""
 	#if using the hires phoenix models call using the correct formatting
 	if models == 'hires':
@@ -363,15 +249,6 @@ def find_model(temp, logg, metal, models = 'btsettl'):
 
 def spec_interpolator(w, trange, lgrange, specrange, npix = 3, resolution = 10000, metal = 0, write_file = True, models = 'btsettl'):
 	'''Runs before emcee, to read in files to memory
-
-	Args:
-		trange (array): minimum and maximum temperature limits to be read in
-		lgrange (array): minimum and maximum log(g) limits to be read in
-		specrange (array): minimum and maximum wavelengths to use (in Angstroms)
-		npix (int): factor by which to reduce the resolution. Default is 3
-		resolution (int): resolution at which to store the spectra - should be larger than the final desired resolution
-		metal (float): metallicity to use. Defaults to 0, which is also the only currently supported value.
-
 	'''
 	#first, read in the wavelength vector
 	if models == 'hires':
@@ -502,186 +379,154 @@ def spec_interpolator(w, trange, lgrange, specrange, npix = 3, resolution = 1000
 	#return the spectrum dictionary
 	return specs
 
-def get_spec(temp, log_g, reg, specdict, metallicity = 0, normalize = False, wlunit = 'aa', pys = False, plot = False, models = 'btsettl', resolution = 1000, reduce_res = False, npix = 3):
-	"""Creates a spectrum from given parameters, either using the pysynphot utility from STScI or using a homemade interpolation scheme.
-	Pysynphot may be slightly more reliable, but the homemade interpolation is more efficient (by a factor of ~2).
+def get_spec(temp, log_g, reg, specdict, metallicity = 0, normalize = False, wlunit = 'aa', plot = False, models = 'btsettl', resolution = 1000, reduce_res = False, npix = 3):
+	"""Creates a spectrum from given parameters.
 	
 	TO DO: add a path variable so that this is more flexible, add contingency in the homemade interpolation for if metallicity is not zero
-
-	Args: 
-		temp (float): temperature value
-		log_g (float): log(g) value
-		reg (list): region array ([start, end])
-		metallicity (float): Optional, defaults to 0
-		normalize (boolean): Optional, defaults to True
-		wlunit: Optional, wavelength unit. Defaults to angstroms ('aa'), also supports microns ('um').
-		pys (boolean): Optional, set to True use pysynphot. Defaults to False.
-		plot (boolean): Produces a plot of the output spectrum when it is a value in between the grid points and pys = False (defaults to False).
-		resolution (int): Spectral resolution to broaden the spectrum to. Default is 3000.
-		reduce_res (boolean): Whether to impose "pixellation" onto the spectrum using a designated number of pixels per resolution element. Default is True.
-		npix (int): Number of pixels per resolution element if pixellating the spectrum.
-
-	Returns: 
-		a wavelength array and a flux array, in the specified units, as a tuple. Flux is in units of F_lambda (I think)
-
-	Note:
-		Uses the Phoenix models as the base for calculations. 
-
 	"""
-	if pys == True:
-	#grabs a phoenix spectrum using Icat calls via pysynphot (from STScI) defaults to microns
-	#get the spectrum
-		sp = ps.Icat('phoenix', temp, metallicity, log_g)
-		#put it in flambda units
-		sp.convert('flam')
-		#make arrays to eventually return so we don't have to deal with subroutines or other types of arrays
-		spflux = np.array(sp.flux, dtype='float')
-		spwave = np.array(sp.wave, dtype='float')
+	#we have to:
+	#read in the synthetic spectra
+	#pick our temperature and log g values (assume metallicity is constant for now)
+	#pull a spectrum 
+	#initialize a time variable if i want to check how long this takes to run
+	time1 = time.time()
+	#list all the spectrum files
+	if models == 'hires':
+		files = glob('SPECTRA/lte*txt')
 
-	if pys == False:
-		#we have to:
-		#read in the synthetic spectra
-		#pick our temperature and log g values (assume metallicity is constant for now)
-		#pull a spectrum 
-		#initialize a time variable if i want to check how long this takes to run
-		time1 = time.time()
-		#list all the spectrum files
+		#initialize a tempeature array
+		t = []
+		#sort through and pick out the temperature value from each file name
+		for n in range(len(files)):
+			nu = files[n].split('-')[0].split('e')[1]
+			if len(nu) < 4:
+				nu = int(nu) * 1e2
+				t.append(nu)
+			else:
+				t.append(int(nu))
+		#sort the temperature array so it's in order
+		t = sorted(t)
+		#initialize a non-redundant array
+		temps = [min(t)]
+
+		#go through the sorted array and if the temperature isn't already in the non-redundant array, put it in
+		for n, tt in enumerate(t):
+			if tt > temps[-1]:
+				temps.append(tt)
+
+	if models == 'btsettl':
+		files = glob('BT-Settl_M-0.0a+0.0/lte*')
+		#initialize temperature and log(g) arrays
+		t = []
+		l = []
+		#sort through and pick out the temperature and log(g) value from each file name
+		for n in range(len(files)):
+			nu = files[n].split('-')[2].split('e')[1]
+			nu = int(float(nu) * 1e2)
+
+			#add the teff and log(g) values to the relevant arrays if they are 1) not redundant and 2) within the desired range
+			if nu not in t:
+				t.append(nu)
+
+			temps = sorted(t)
+
+	#find the closest temperature to the input value
+	t1_idx = find_nearest(temps, temp)
+
+	#if that input value is on a grid point, make the second spectrum the same temperature
+	if temps[t1_idx] == temp:
+		t2_idx = t1_idx
+	#if the nearest temp value is above the input value, the other temperature should fall below
+	elif temps[t1_idx] > temp:
+		t2_idx = t1_idx - 1
+	#otherwise the second temperature should fall above
+	else:
+		t2_idx = t1_idx + 1
+
+	#temp1 and temp2 have been selected to enclose the temperature, or to be the temperature exactly if the temp requested is on a grid point
+	temp1 = temps[t1_idx]
+	temp2 = temps[t2_idx]
+
+	#now do the same thing for log(g)
+	if models == 'btsettl':
+		l = sorted([float(files[n].split('-')[3]) for n in range(len(files))])
+	if models == 'hires':
+		l = sorted([float(files[n].split('-')[1]) for n in range(len(files))])
+
+	lgs = [min(l)]
+
+	for n, tt in enumerate(l):
+		if tt > lgs[-1]:
+			lgs.append(tt)
+
+	lg1_idx = find_nearest(lgs, log_g)
+	 
+	if lgs[lg1_idx] == log_g:
+		lg2_idx = lg1_idx
+	elif lgs[lg1_idx] > log_g:
+		lg2_idx = lg1_idx - 1
+	else:
+		lg2_idx = lg1_idx + 1
+
+	lg1 = lgs[lg1_idx]
+	lg2 = lgs[lg2_idx]
+
+	#so now I have four grid points: t1 lg1, t1 lg2, t2 lg1, t2 lg2. now i have to sort out whether some of those grid points are the same value
+	#first, get the wavelength vector for everything 
+	spwave = specdict['wl']
+	#define a first spectrum using t1 lg1 and unpack the spectrum 
+
+	#if I'm looking for a log(g) and a temperature that fall on a grid point, things are easy
+	#just open the file 
+
+	#the hires spectra are in units of erg/s/cm^2/cm, so divide by 1e8 to get erg/s/cm^2/A
+	if lg1 == lg2 and temp1 == temp2:
+		spflux = specdict['{}, {}'.format(temp1, lg1)]
 		if models == 'hires':
-			files = glob('SPECTRA/lte*txt')
+			spflux /= 1e8
 
-			#initialize a tempeature array
-			t = []
-			#sort through and pick out the temperature value from each file name
-			for n in range(len(files)):
-				nu = files[n].split('-')[0].split('e')[1]
-				if len(nu) < 4:
-					nu = int(nu) * 1e2
-					t.append(nu)
-				else:
-					t.append(int(nu))
-			#sort the temperature array so it's in order
-			t = sorted(t)
-			#initialize a non-redundant array
-			temps = [min(t)]
+	#If the points don't all fall on the grid points, we need to get the second spectrum at point t2 lg2, as well as the cross products
+	#(t1 lg2, t2 lg1)
+	else:
+		#find all the spectra 
+		spec1 = specdict['{}, {}'.format(temp1, lg1)]
+		spec2 = specdict['{}, {}'.format(temp2, lg2)]
+		t1_inter = specdict['{}, {}'.format(temp1, lg2)]
+		t2_inter = specdict['{}, {}'.format(temp2, lg1)]
 
-			#go through the sorted array and if the temperature isn't already in the non-redundant array, put it in
-			for n, tt in enumerate(t):
-				if tt > temps[-1]:
-					temps.append(tt)
-
-		if models == 'btsettl':
-			files = glob('BT-Settl_M-0.0a+0.0/lte*')
-			#initialize temperature and log(g) arrays
-			t = []
-			l = []
-			#sort through and pick out the temperature and log(g) value from each file name
-			for n in range(len(files)):
-				nu = files[n].split('-')[2].split('e')[1]
-				nu = int(float(nu) * 1e2)
-
-				#add the teff and log(g) values to the relevant arrays if they are 1) not redundant and 2) within the desired range
-				if nu not in t:
-					t.append(nu)
-
-				temps = sorted(t)
-
-		#find the closest temperature to the input value
-		t1_idx = find_nearest(temps, temp)
-
-		#if that input value is on a grid point, make the second spectrum the same temperature
-		if temps[t1_idx] == temp:
-			t2_idx = t1_idx
-		#if the nearest temp value is above the input value, the other temperature should fall below
-		elif temps[t1_idx] > temp:
-			t2_idx = t1_idx - 1
-		#otherwise the second temperature should fall above
-		else:
-			t2_idx = t1_idx + 1
-
-		#temp1 and temp2 have been selected to enclose the temperature, or to be the temperature exactly if the temp requested is on a grid point
-		temp1 = temps[t1_idx]
-		temp2 = temps[t2_idx]
-
-		#now do the same thing for log(g)
-		if models == 'btsettl':
-			l = sorted([float(files[n].split('-')[3]) for n in range(len(files))])
+		#if using hires correct the models to get the correct spectrum values
 		if models == 'hires':
-			l = sorted([float(files[n].split('-')[1]) for n in range(len(files))])
+			spec1, spec2, t1_inter, t2_inter = spec1/1e8, spec2/1e8, t1_inter/1e8, t2_inter/1e8
 
-		lgs = [min(l)]
+		#if t1 and t2 AND lg1 and lg2 are different, we need to interpolate first between the two log(g) points, then the two teff points
+		if lg1 != lg2 and temp1 != temp2:
+			t1_lg = interp_2_spec(spec1, t1_inter, lg1, lg2, log_g)
+			t2_lg = interp_2_spec(t2_inter, spec2, lg1, lg2, log_g)
 
-		for n, tt in enumerate(l):
-			if tt > lgs[-1]:
-				lgs.append(tt)
+			tlg = interp_2_spec(t1_lg, t2_lg, temp1, temp2, temp)
 
-		lg1_idx = find_nearest(lgs, log_g)
-		 
-		if lgs[lg1_idx] == log_g:
-			lg2_idx = lg1_idx
-		elif lgs[lg1_idx] > log_g:
-			lg2_idx = lg1_idx - 1
-		else:
-			lg2_idx = lg1_idx + 1
+		#or if we're looking at the same log(g), we only need to interpolate in temperature
+		elif lg1 == lg2 and temp1 != temp2:
+			tlg = interp_2_spec(spec1, spec2, temp1, temp2, temp)
 
-		lg1 = lgs[lg1_idx]
-		lg2 = lgs[lg2_idx]
-
-		#so now I have four grid points: t1 lg1, t1 lg2, t2 lg1, t2 lg2. now i have to sort out whether some of those grid points are the same value
-		#first, get the wavelength vector for everything 
-		spwave = specdict['wl']
-		#define a first spectrum using t1 lg1 and unpack the spectrum 
-
-		#if I'm looking for a log(g) and a temperature that fall on a grid point, things are easy
-		#just open the file 
-
-		#the hires spectra are in units of erg/s/cm^2/cm, so divide by 1e8 to get erg/s/cm^2/A
-		if lg1 == lg2 and temp1 == temp2:
-			spflux = specdict['{}, {}'.format(temp1, lg1)]
-			if models == 'hires':
-				spflux /= 1e8
-
-		#If the points don't all fall on the grid points, we need to get the second spectrum at point t2 lg2, as well as the cross products
-		#(t1 lg2, t2 lg1)
-		else:
-			#find all the spectra 
-			spec1 = specdict['{}, {}'.format(temp1, lg1)]
-			spec2 = specdict['{}, {}'.format(temp2, lg2)]
-			t1_inter = specdict['{}, {}'.format(temp1, lg2)]
-			t2_inter = specdict['{}, {}'.format(temp2, lg1)]
-
-			#if using hires correct the models to get the correct spectrum values
-			if models == 'hires':
-				spec1, spec2, t1_inter, t2_inter = spec1/1e8, spec2/1e8, t1_inter/1e8, t2_inter/1e8
-
-			#if t1 and t2 AND lg1 and lg2 are different, we need to interpolate first between the two log(g) points, then the two teff points
-			if lg1 != lg2 and temp1 != temp2:
-				t1_lg = interp_2_spec(spec1, t1_inter, lg1, lg2, log_g)
-				t2_lg = interp_2_spec(t2_inter, spec2, lg1, lg2, log_g)
-
-				tlg = interp_2_spec(t1_lg, t2_lg, temp1, temp2, temp)
-
-			#or if we're looking at the same log(g), we only need to interpolate in temperature
-			elif lg1 == lg2 and temp1 != temp2:
-				tlg = interp_2_spec(spec1, spec2, temp1, temp2, temp)
-
-			#similarly, if we're using the same temperature but different log(g), we only interpolate in log(g)
-			elif temp1 == temp2 and lg1 != lg2:
-				tlg = interp_2_spec(spec1, spec2, lg1, lg2, log_g)
-			#if you want, make a plot of all the different spectra to compare them
-			#this only plots the final interpolated spectrum and the two teff points that are interpolated, after the log(g) interpolation has occurred
-			if plot == True:
-				wl1a, tla = make_reg(spwave, tlg, [1e4, 1e5])
-				wl1a, t1l1a = make_reg(spwave, t1_lg, [1e4, 1e5])
-				wl1a, t1l2a = make_reg(spwave, t2_lg, [1e4, 1e5])
-				plt.loglog(wl1a, tla, label = 'tl')
-				plt.loglog(wl1a, t1l1a, label = 't1l1')
-				plt.loglog(wl1a, t1l2a, label = 't1l2')
-				plt.legend()
-				plt.show()
-			
-			#reassign some variables used above to match with the environment outside the if/else statement
-			# spwave = spwave
-			spflux = tlg
+		#similarly, if we're using the same temperature but different log(g), we only interpolate in log(g)
+		elif temp1 == temp2 and lg1 != lg2:
+			tlg = interp_2_spec(spec1, spec2, lg1, lg2, log_g)
+		#if you want, make a plot of all the different spectra to compare them
+		#this only plots the final interpolated spectrum and the two teff points that are interpolated, after the log(g) interpolation has occurred
+		if plot == True:
+			wl1a, tla = make_reg(spwave, tlg, [1e4, 1e5])
+			wl1a, t1l1a = make_reg(spwave, t1_lg, [1e4, 1e5])
+			wl1a, t1l2a = make_reg(spwave, t2_lg, [1e4, 1e5])
+			plt.loglog(wl1a, tla, label = 'tl')
+			plt.loglog(wl1a, t1l1a, label = 't1l1')
+			plt.loglog(wl1a, t1l2a, label = 't1l2')
+			plt.legend()
+			plt.show()
+		
+		#reassign some variables used above to match with the environment outside the if/else statement
+		# spwave = spwave
+		spflux = tlg
 
 	#convert the requested region into angstroms to match the wavelength vector
 	reg = np.array(reg)*1e4
@@ -713,7 +558,7 @@ def get_spec(temp, log_g, reg, specdict, metallicity = 0, normalize = False, wlu
 		return np.array(spwave), np.array(spflux)
 
 def get_transmission(f, res):
-	'''f = filter name, with system if necessary
+	'''retrieve a transmission curve at a given reoslution. Options are hardcoded because lots of the filter files have different structures.
 	'''
 	#first, we have to figure out what filter this is
 	#make sure it's lowercase
@@ -765,8 +610,6 @@ def get_transmission(f, res):
 		t_wl = filtfile[:,0]; t_cv = filtfile[:,1]
 	elif syst == 'sdss':
 		t_wl, t_cv = np.genfromtxt('bps/SLOAN_SDSS.{}prime_filter.dat'.format(fil)).T
-		# filtfile = Table(fits.getdata('bps/sdss_{}_005_syn.fits'.format(fil)))
-		# t_wl = np.array(filtfile['WAVELENGTH']); t_cv = np.array(filtfile['THROUGHPUT'])
 	elif syst == 'sloan':
 		fname = np.array(['u\'', 'g\'', 'r\'', 'i\'', 'z\''])
 		n = np.where(fil + '\'' == fname)[0][0]
@@ -790,37 +633,9 @@ def get_transmission(f, res):
 	#return the wavelength array, the transmission curve, the number of resolution elements in the bandpass, and the central wavelength
 	return t_wl, t_cv, n_resel, np.mean(t_wl)
 
-def make_composite(teff, logg, rad, distance, contrast_filt, phot_filt, r, specs, ctm, ptm, tmi, tma, vs, nspec = 2, normalize = False, res = 1000, npix = 3, models = 'btsettl', plot = False, iso = False):
-	"""add spectra together given an array of spectra and flux ratios
-
-	Args: 
-		teff (array): array of temperature values (floats)
-		logg (array): array of log(g) values (floats) 
-		rad (array): set of primary radius guess and all radius ratios (if distance is known) or just the set of radius ratios (if distance is not known)
-		distance (float): distance to system, in pc
-		contrast_filt (array): array of strings of different filters to calculate contrasts for
-		phot_filt (array): array of strings of different filters in which to calculate unresolved photometry.\
-		Supported systems are 2MASS, Bessell, Cousins, Johnson, Landolt, SDSS, and Stromgren.\
-		For standard UBVRIJHK defaults to Johnson (UBVRI) and 2MASS (JHKs). Should be entered as, e.g., 'Johnson, U'. Not case sensitive.
-		range (array): minimum and maximum limits for the spectrum, in units of microns.
-		specs (dict): dictionary of reference spectra to feed to the spectrum generator
-		normalize (boolean): Normalize the spectra before adding them (default is True)
-		res (int): spectra resolution to use
-
-	Returns: 
-		wl, spec (tuple): wavelength and spectrum (or central wavelength and synthetic photometry) for a spectrum (if in "spec" mode)
-		set of synthetic colors (if in 'sed' mode)
-
+def make_composite(teff, logg, rad, distance, contrast_filt, phot_filt, r, specs, ctm, ptm, tmi, tma, vs, nspec = 2, normalize = False, res = 1000, npix = 3, models = 'btsettl', plot = False):
+	"""add spectra together given an array of spectra and flux ratios. Returns a spectrum, composite photometry, and contrasts. Can return component data if plot = True.
 	"""
-
-	#initialize variables for keeping track of the total minimum and maximum wavelengths requested for all filters
-
-
-	#what i need to do: get the primary and secondary spectra, use a given radius to make a normalization constant for the secondary
-	#take the individual spectra and calculate a contrast in the relevant filters
-	#add the spectra for a composite spectrum
-	#do synthetic photometry in the relevant filters
-	#return the wl, spec, contrasts, and photometry 
 
 	#unpack the contrast and photometry lists
 	#wls and tras are the wavelength and transmission arrays for the contrast list; n_res_el is the number of resolution elements in each filter, and 
@@ -932,7 +747,6 @@ def make_composite(teff, logg, rad, distance, contrast_filt, phot_filt, r, specs
 
 	#if only using 2MASS mags truncate the zero point array
 	if len(phot_filt) == 3:
-		zp = zp[-3:]
 		fs = ['2MASS_J', '2MASS_H', '2MASS_Ks']
 	else:
 		fs = ['SDSS_r', 'SDSS_i', 'SDSS_z', '2MASS_J', '2MASS_H', '2MASS_Ks']
@@ -981,40 +795,6 @@ def make_composite(teff, logg, rad, distance, contrast_filt, phot_filt, r, specs
 
 			#return the wavelength array, the composite spectrum, the component spectra, and the component kepler magnitudes
 			return np.array(pri_wl[0,:]), np.array(spec1), np.array(pri_spec[0,:]), np.array(pri_spec[1,:]), np.array(pri_spec[2,:]), pri_vegamag, sec_vegamag, tri_vegamag
-
-
-	#If I'm calling the function to make an CMD, I've decided I want to do it in H-K vs K space
-	elif iso == True:
-		#so read in the H and Ks transmission curves
-		hran, htm, ha, hb = get_transmission('2mass,h', res)
-		kran, ktm, ka, kb = get_transmission('2mass,ks', res)
-
-		#and calculate the zero point in erg/s/cm^2/A
-		zp_jy = [1024, 666.7] #zero point in Jy (10^-23 erg/s/cm^2/Hz)
-		cw = [1.662e4, 2.159e4] #A
-		bp_width = [2509, 2618]
-		zp = [zp_jy[n]*bp_width[n]/(3.336e4 * cw[n]**2) for n in range(len(zp_jy))] #convert to a zero point in flux
-
-		#create the transmission curves for H and K
-		intep_h = interp1d(hran, htm); 
-		data_tm_h = intep_h(pri_wl[0,:][np.where((pri_wl[0,:] >= min(hran)) & (pri_wl[0,:] <= max(hran)))])
-		intep_k = interp1d(kran, ktm); 
-		data_tm_k = intep_k(pri_wl[0,:][np.where((pri_wl[0,:] >= min(kran)) & (pri_wl[0,:] <= max(kran)))])
-
-		#calculate the H band photometry
-		pri_phot_h = np.sum(np.array(pri_spec[0,:])[np.where((pri_wl[0,:] >= min(hran)) & (pri_wl[0,:] <= max(hran)))] * data_tm_h)/zp[0]
-		sec_phot_h = np.sum(np.array(sec_spec)[np.where((pri_wl[0,:] >= min(hran)) & (pri_wl[0,:] <= max(hran)))] * data_tm_h)/zp[0]
-
-		#calculate the K band photometry
-		pri_phot_k = np.sum(np.array(pri_spec[0,:])[np.where((pri_wl[0,:] >= min(kran)) & (pri_wl[0,:] <= max(kran)))] * data_tm_k)/zp[1]
-		sec_phot_k = np.sum(np.array(sec_spec)[np.where((pri_wl[0,:] >= min(kran)) & (pri_wl[0,:] <= max(kran)))] * data_tm_k)/zp[1]
-
-		#calculate the H and K magnitudes for each component
-		pri_hmag = -2.5*np.log10(pri_phot_h); sec_hmag = -2.5*np.log10(sec_phot_h)
-		pri_kmag = -2.5*np.log10(pri_phot_k); sec_kmag = -2.5*np.log10(sec_phot_k)
-
-		#return the H and K component magnitudes
-		return pri_hmag, sec_hmag, pri_kmag, sec_hmag
 	
 	else:
 		return np.array(pri_wl[0,:]), np.array(spec1), [c for c in contrast], np.array([float(p) for p in phot_cwl]), np.array([p for p in phot_phot])
@@ -1024,8 +804,6 @@ def opt_prior(vals, pval, psig):
 	"""
 	#initialize a list for likelihood values
 	pp = []
-	if psig[0] == 0:
-		return 1e8
 	#for each value we're calculating the prior for
 	if len(pval) == 1 or type(pval) == float:
 		try:
@@ -1045,25 +823,8 @@ def opt_prior(vals, pval, psig):
 	return np.sum(pp)
 
 def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_guess, specs, tlim, distance, ctm, ptm, tmi, tma, vs, matrix, ra, dec,\
-	nspec = 2, cs = 2, steps = 200, burn = 1, conv = True, models = 'btsettl', dist_fit = True, rad_prior = False):
+	nspec = 2, steps = 200, models = 'btsettl', dist_fit = True, rad_prior = False):
 	"""Performs a modified gibbs sampler MCMC using a reduced chi-square statistic.
-
-	Args:
-		n_walkers (int): number of walkers.
-		wl (list): wavelength array.
-		flux (list): spectrum array.
-		reg (list): Two value array with start and end points for fitting.
-		t_guess (array): Initial teff guesses.
-		lg_guess (array): initial log(g) guesses.
-		extinct (float): [currently] known extinction value - [future] initial ext guess.
-		fr (list): flux ratio array. has structure like [[0.2], ['johnson, r']].
-		sp (dict): dictionary including wavelength vector ('wl') and teff/log(g) pairs ('3000, 4.5').
-		tlim (tuple): min and max allowed temperature values.
-		llim (tuple): min and max allowed log(g) values.
-		cs (int): cutoff chi square to decide convergence. Default: 2.
-		steps (int): maximum steps to take after the burn-in steps. Default: 200.
-		burn (int): number of burn-in steps. Default: 20.
-		conv (Bool): Use chi-square for convergence (True) or the number of steps (False). Default: True.
 	"""
 	#make sure wl is in Angstroms 
 	wl *= 1e4
@@ -1132,6 +893,8 @@ def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_
 	pos = SkyCoord(ra*u.deg, dec*u.deg, distance = (1/dist)*u.pc)
 	av_guess = bayestar(pos, mode = 'samples') * 3.1 * 0.884
 	av_guess_mu = np.mean(av_guess); av_guess_sig = np.std(av_guess)
+	if av_guess_sig == 0:
+		av_guess_sig = 0.05
 	init_cs += opt_prior([extinct_guess], [av_guess_mu], [av_guess_sig])
 	#that becomes your comparison chi square
 	chi = init_cs
@@ -1169,7 +932,7 @@ def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_
 		n = 0
 		total_n = 0
 		#as long as both counters are below the set limits 
-		while n < steps + burn and total_n < (50 * steps) + burn:
+		while n < steps + burn and total_n < (50 * steps):
 
 			#if we're halfway through reduce the step size significantly to refine the fit in chi^2 surface assuming the coarse step got us to the approximate correct minimum
 			if n > (burn + steps/2):
@@ -1185,11 +948,13 @@ def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_
 			pos = SkyCoord(ra*u.deg, dec*u.deg, distance = (1/var_par[3])*u.pc)
 			av_guess = bayestar(pos, mode = 'samples') * 3.1 * 0.884
 			av_guess_mu = np.mean(av_guess); av_guess_sig = np.std(av_guess)
+			if av_guess_sig == 0:
+				av_guess_sig = 0.05
 
 			# print(var_par, tlim, llim)
 			#make sure that everything that got varied was inside the parameter limits
 			if all(min(tlim) < v < max(tlim) for v in var_par[0])  and 0 <= var_par[1] and all(0.05 < r < 1.5 for r in var_par[2])\
-				 and 1/100 > var_par[3] > 1/3000 and av_guess_mu > 0:
+				 and 1/100 > var_par[3] > 1/3000:
 				#we made it through, so increment the counters by 1 to count the function call
 				total_n += 1
 				n += 1
@@ -1331,7 +1096,7 @@ def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_
 			#and then return the final best-fit value and chi^2 
 			return '{} {} {} {} {} {} {} {}\n'.format(gi[0][0], gi[0][1], gi[0][2], float(gi[1]), gi[2][0], gi[2][1], gi[2][2], float(gi[3])), savechi[-1]
 
-def loglikelihood(p0, fr, nspec, ndust, data, err, broadening, r, specs, ctm, ptm, tmi, tma, vs, matrix, w = 'aa', pysyn = False, dust = False, norm = True, mode = 'spec', av = True, optimize = False, models = 'btsettl'):
+def loglikelihood(p0, fr, nspec, ndust, data, err, broadening, r, specs, ctm, ptm, tmi, tma, vs, matrix, w = 'aa', dust = False, norm = True, mode = 'spec', av = True, optimize = False, models = 'btsettl'):
 	#unpack data tuple into wavelength and data arrays
 	wl, spec = np.array(data)
 
@@ -1356,10 +1121,6 @@ def loglikelihood(p0, fr, nspec, ndust, data, err, broadening, r, specs, ctm, pt
 	if av == True and extinct_guess > 0:
 		init_cspec = extinct(wave1, init_cspec, extinct_guess)
 		init_phot = -2.5*np.log10(extinct(phot_cwl, 10**(-0.4*phot), extinct_guess))
-	#or if I set the extinction to a specific value, extinct the spectrum and photometry using that value
-	# elif av != 0 and type(av) == float:
-	# 	init_cspec = extinct(wave1, init_cspec, av)
-	# 	init_phot = -2.5*np.log10(extinct(phot_cwl, 10**(-0.4*phot), av))
 	#otherwise just transfer the photometry to another variable for consistency and proceed without extincting anything
 	else:
 		init_phot = phot
@@ -1430,7 +1191,9 @@ def logprior(p0, nspec, ndust, tmin, tmax, matrix, ra, dec, prior = 0, ext = Tru
 			pos = SkyCoord(ra*u.deg, dec*u.deg, distance = (1/dist)*u.pc)
 			av_guess = bayestar(pos, mode = 'samples') * 3.1 * 0.884
 			# print(av_guess)
-			av_guess_mu = np.mean(av_guess); av_guess_sig = 0.1 #np.std(av_guess)
+			av_guess_mu = np.mean(av_guess); av_guess_sig = np.std(av_guess)
+			if av_guess_sig == 0:
+				av_guess_sig = 0.05
 			pp.append(-0.5 * ((extinct - av_guess_mu)/av_guess_sig)**2)
 
 		if prior != 0:
@@ -1486,7 +1249,9 @@ def logprior(p0, nspec, ndust, tmin, tmax, matrix, ra, dec, prior = 0, ext = Tru
 			pos = SkyCoord(ra*u.deg, dec*u.deg, distance = (1/p0[-1])*u.pc)
 			av_guess = bayestar(pos, mode = 'samples') * 3.1 * 0.884
 			# print(av_guess)
-			av_guess_mu = np.mean(av_guess); av_guess_sig = 0.1 #np.std(av_guess)
+			av_guess_mu = np.mean(av_guess); av_guess_sig = np.std(av_guess)
+			if av_guess_sig == 0:
+				av_guess_sig = 0.05
 			pp.append(-0.5 * ((extinct - av_guess_mu)/av_guess_sig)**2)
 
 		#if there are any non-zero non-uniform priors, we need to assess them 
@@ -1542,7 +1307,8 @@ def logprior(p0, nspec, ndust, tmin, tmax, matrix, ra, dec, prior = 0, ext = Tru
 			pos = SkyCoord(ra*u.deg, dec*u.deg, distance = (1/dist)*u.pc)
 			av_guess = bayestar(pos, mode = 'samples') * 3.1 * 0.884
 			av_guess_mu = np.mean(av_guess); av_guess_sig = np.std(av_guess)
-
+			if av_guess_sig == 0:
+				av_guess_sig = 0.05
 			pp.append(-0.5 * ((extinct - av_guess_mu)/av_guess_sig)**2)
 
 
@@ -1604,7 +1370,8 @@ def logprior(p0, nspec, ndust, tmin, tmax, matrix, ra, dec, prior = 0, ext = Tru
 			pos = SkyCoord(ra*u.deg, dec*u.deg, distance = (1/dist)*u.pc)
 			av_guess = bayestar(pos, mode = 'samples') * 3.1 * 0.884
 			av_guess_mu = np.mean(av_guess); av_guess_sig = np.std(av_guess)
-
+			if av_guess_sig == 0:
+				av_guess_sig = 0.05
 			pp.append(-0.5 * ((extinct - av_guess_mu)/av_guess_sig)**2)
 
 		#if there are any non-zero non-uniform priors, we need to assess them 
@@ -1644,25 +1411,8 @@ def logprior(p0, nspec, ndust, tmin, tmax, matrix, ra, dec, prior = 0, ext = Tru
 		print('P0 doesn\'t match what I was expecting')
 
 def logposterior(p0, fr, nspec, ndust, data, err, broadening, r, specs, ctm, ptm, tmi, tma, vs, tmin, tmax, matrix, ra, dec, \
-	wu = 'aa', pysyn = False, dust = False, norm = True, prior = 0, a = True, models = 'btsettl', dist_fit = True, rad_prior = False):
+	wu = 'aa', dust = False, norm = True, prior = 0, a = True, models = 'btsettl', dist_fit = True, rad_prior = False):
 	"""The natural logarithm of the joint posterior.
-
-	Args:
-		p0 (list): a sample containing individual parameter values. Then p0[0: n] = temp, p0[n : 2n] = lg, p0[2n+1] = flux ratio,\
-			 p0[2n + 2] = extinction, p0[2n+3:-1] = dust temps
-		nspec (int): number of spectra/stars
-		ndust (int): number of dust continuum components
-		data (list): the set of data/observations
-		flux_ratio (array): set of flux ratios with corresponding wavelength value for location of ratio
-		broadening (int): The instrumental resolution of the spectra
-		r (list): region to use when calculating liklihood
-		w (string): Wavelength unit, options are "aa" and "um". Default is "aa".
-		pysyn (bool): Use pysynphot to calculate spectra. Default is False.
-		dust (bool): Add dust continuum? Default is False.
-		norm (bool): Normalize spectra when fitting. Default is True.
-
-	Returns: 
-		lh (float): The log of the liklihood of the fit being pulled from the model distribution.
 	"""
 	lp = logprior(p0, nspec, ndust, tmin, tmax, matrix, ra, dec, prior = prior, ext = a, dist_fit = dist_fit, rad_prior = rad_prior)
 	# if the prior is not finite return a probability of zero (log probability of -inf)
@@ -1670,35 +1420,13 @@ def logposterior(p0, fr, nspec, ndust, data, err, broadening, r, specs, ctm, ptm
 	if not np.isfinite(lp):
 		return -np.inf
 	else:
-		# t1 = time.time()
-		lh = loglikelihood(p0, fr, nspec, ndust, data, err, broadening, r, specs, ctm, ptm, tmi, tma, vs, matrix, w = wu, pysyn = False, dust = False, norm = True, av = a, optimize = False, models = models)
-		# print('time for likelihood call: ', time.time() - t1)
+		lh = loglikelihood(p0, fr, nspec, ndust, data, err, broadening, r, specs, ctm, ptm, tmi, tma, vs, matrix, w = wu, dust = False, norm = True, av = a, optimize = False, models = models)
 		# return the likeihood times the prior (log likelihood plus the log prior)
 		return lp + lh
 
 def run_emcee(dirname, fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndust, data, err, broadening, r, specs, value1, ctm, ptm, tmi, tma, vs, title_format, matrix, ra, dec, \
-	nthin=10, w = 'aa', pys = False, du = False, no = True, prior = 0, av = True, models = 'btsettl', dist_fit = True, rad_prior = False):
-	"""Run the emcee code to fit a spectrum 
-
-	Args:
-		fname (string): input file name to use
-		nwalkers (int): number of walkers to use
-		nsteps (int): number of steps for each walker to take
-		ndim (int): number of dimensions to fit to. For a single spectrum to fit temperature and log(g) for, ndim would be 2, for example. 
-		nburn (int): number of steps to discard before starting the sampling. Should be large enough that the walkers are well distributed before sampling starts.
-		pos (list): array containing the initial guesses for temperature, log g, flux ratio, and extinction
-		nspec (int): number of spectra to fit to. For a single spectrum fit this would be 1, for a two component fit this should be 2.
-		ndust (int): number of dust continuum components to fit to. (untested)
-		data (list): the spectrum to fit to
-		flux_ratio (list): an array with a subarray of flux ratios, followed by a subarray with the strings of the filter in which they were measured.
-		broadening (float): the instrumental resolution of the input data, or the desired resolution to use to fit.
-		r (list): a two valued array containing the region to fit within, in microns.
-		nthin (int): the sampling rate of walker steps to save. Default is 10.
-		w (string): the wavelength unit to use. Accepts 'um' and 'aa'. Default is 'aa'.
-		pys (boolean): Whether to use pysynphot for spectral synthesis (if true). Default is False.
-		du (boolean): Whether to fit to dust components. Default is False.
-		no (boolean): Whether to normalize the spectra while fitting. Default is True.
-
+	nthin=10, w = 'aa', du = False, no = True, prior = 0, av = True, models = 'btsettl', dist_fit = True, rad_prior = False):
+	"""Run the emcee code to fit a combined data set.
 	"""
 	#first, define some limits for the prior based on the spectra we've read in
 	#initialize a temperature and log(g) array
@@ -1716,15 +1444,9 @@ def run_emcee(dirname, fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndu
 
 	count = mp.cpu_count()
 	with mp.Pool(processes = 15) as pool:
-	# with MPIPool() as pool:
-	# 	if not pool.is_master():
-	# 		pool.wait()
-	# 		sys.exit(0)
 		sampler = emcee.EnsembleSampler(nwalkers, ndim, logposterior, threads=nwalkers, args=[fr, nspec, ndust, data, err, broadening, r, specs, ctm, ptm, tmi, tma, vs, tmin, tmax, matrix, ra, dec], \
 		kwargs={'pysyn': pys, 'dust': du, 'norm':no, 'prior':prior, 'a':av, 'models':models, 'dist_fit':dist_fit, 'rad_prior':rad_prior})
 
-		# except:
-		# t1 = time.time()
 		for n, s in enumerate(sampler.sample(pos, iterations = nburn)):
 			if n % nthin == 0:
 				with open('{}/{}_{}_burnin.txt'.format(dirname,fname, n), 'ab') as f:
@@ -1737,7 +1459,6 @@ def run_emcee(dirname, fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndu
 
 		old_acl = np.inf
 		for n, s in enumerate(sampler.sample(state, iterations = nsteps)):
-			# print(n)
 			if n % nthin == 0:
 				with open('{}/{}_{}_results.txt'.format(dirname,fname, n), 'ab') as f:
 					f.write(b'\n')
@@ -1751,11 +1472,8 @@ def run_emcee(dirname, fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndu
 					f.write(str(macl) + '\n')
 			
 				if not np.isnan(macl):
-					# print('hi')
 					converged = np.all(acl * 50 < n)
-					# print(converged)
 					converged &= np.all((np.abs(old_acl - acl) / acl) < 0.1)
-					# print(converged)
 					if converged == True:
 						break
 
@@ -1766,24 +1484,7 @@ def run_emcee(dirname, fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndu
 
 		np.savetxt(os.getcwd() + '/{}/samples.txt'.format(dirname), samples)
 
-	# samples = np.genfromtxt(os.getcwd()+'/{}/samples.txt'.format(dirname)) #np.concatenate(([np.genfromtxt('results/run2_{}_results.txt'.format(r)) for r in np.arange(1000, 1300, 50)]))
-
-	# for i in range(ndim):
-	# 	plt.figure(i)
-	# 	plt.hist(sampler.flatchain[:,i], histtype="step")
-	# 	plt.title("Dimension {0:d}".format(i))
-	# 	plt.savefig(os.getcwd() + '/{}/plots/{}_{}.pdf'.format(dirname,fname, i))
-	# 	plt.close()
-
-	# 	plt.figure(i)
-
-	# 	# try:
-	# 	for n in range(nwalkers):
-	# 		plt.plot(np.arange(len(sampler.chain[n, :, i])),sampler.chain[n, :, i], color = 'k', alpha = 0.5)
-	# 	plt.savefig(os.getcwd() + '/{}/plots/{}_chain_{}.pdf'.format(dirname,fname, i))
-	# 	plt.close()
-	# 	# except:
-	# 	# 	pass
+	# samples = np.genfromtxt(os.getcwd()+'/{}/samples.txt'.format(dirname))
 
 	if ndim == 6:
 		samples[:,-1] *= 1e3
@@ -1994,25 +1695,8 @@ def optimize_fit(dirname, data, err, specs, nwalk, fr, dist_arr, av, res, ctm, p
 
 	dist = np.random.normal(dist_arr[0], dist_arr[1], nwalk)
 
-	# dist = np.ones(nwalk) * dist_arr[0]
-	# t1, l1, l2, t2, e1, rg1, rg2 = np.ones(nwalk) * 3850, np.ones(nwalk) * 4.7, np.ones(nwalk) * 4.9, np.ones(nwalk) * 3325, np.ones(nwalk) * 0.2, np.ones(nwalk) * 0.5, np.ones(nwalk) * 0.261
-
-	# dist = [1/d for d in dist]
-	# dist = np.random.uniform(100, 1000, nwalk)
-	# fit_spec(1, data[0], data[1], err, [min(data[0]), max(data[0])], [float(t1[0]), float(t2[0])], [float(l1[0]), float(l2[0])], e1[0], [float(rg1[0]), float(rg2[0])],\
-	# fr, specs, [tmin, tmax], [lmin, lmax], dist[0], cs = cutoff, steps = nstep, burn = nburn, conv = con, models = models)
-
-	#now we need to evaluate the chi square of each position until it's either hit a maximum number of steps or has converged 
-	#use fit_test, which uses a metropolis-hastings algorithm to walk around the parameter space
-
-	# t1 = np.ones(nwalk) * 3500; t2 = np.ones(nwalk) * 3900
-	# l1 = np.ones(nwalk) * 5.13; l2 = np.ones(nwalk) * 4.89
-	# e1 = np.ones(nwalk); rg1 = np.ones(nwalk); rg2 = np.ones(nwalk) * 0.75
-	# dist = np.ones(nwalk) * 1/300
-
 	with mp.Pool(processes = 15) as pool:
 
-		# if not type(dist_arr) == bool:
 		if nspec == 2:
 			out = [pool.apply_async(fit_spec, \
 					args = (n, dirname, data[0], data[1], err, [min(data[0]), max(data[0])], [t1[n], t2[n]], [e1[n], av[0], av[1]], [rg1[n], rg2[n]], fr, specs, [tmin, tmax], [dist[n], dist_arr[0], dist_arr[1]], ctm, ptm, tmi, tma, vs, matrix, ra, dec), \
@@ -2154,7 +1838,7 @@ def plot_fit(run, data, sp, fr, ctm, ptm, tmi, tma, vs, matrix, models = 'btsett
 	#plot the data and the best-fit spectrum, and save the figure
 	plt.figure()
 	plt.minorticks_on()
-	plt.plot(data[0]*1e4, data[1], color = 'navy', linewidth = 1)#, label = 'data: 4250 + 3825; 4.2 + 4.3; 2')
+	plt.plot(data[0]*1e4, data[1], color = 'navy', linewidth = 1)
 	plt.plot(data[0]*1e4, spe, color = 'xkcd:sky blue', label = 'model: {:.0f} + {:.0f}; {:.1f} + {:.1f}; {:.2f}'.format(tt1, tt2, tl1, tl2, te), linewidth = 1)
 	plt.xlim(max(min(w), min(data[0]*1e4)), min(max(w), max(data[0])*1e4))
 	plt.tick_params(which='minor', bottom=True, top =True, left=True, right=True)
@@ -2255,7 +1939,7 @@ def plot_fit3(run, data, sp, fr, ctm, ptm, tmi, tma, vs, matrix, models = 'btset
 	else:
 		print('error in producing spectrum!')
 	#extinct the best-fit spectrum
-	# spe = extinct(w, spe, te)
+	spe = extinct(w, spe, te)
 
 	#interpoalte the best-fit spectrum onto the data wavelength
 	itep = interp1d(w, spe)
@@ -2267,7 +1951,7 @@ def plot_fit3(run, data, sp, fr, ctm, ptm, tmi, tma, vs, matrix, models = 'btset
 	#plot the data and the best-fit spectrum, and save the figure
 	plt.figure()
 	plt.minorticks_on()
-	plt.plot(data[0]*1e4, data[1], color = 'navy', linewidth = 1)#, label = 'data: 4250 + 3825; 4.2 + 4.3; 2')
+	plt.plot(data[0]*1e4, data[1], color = 'navy', linewidth = 1)
 	plt.plot(data[0]*1e4, spe, color = 'xkcd:sky blue', label = 'model: {:.0f} + {:.0f} + {:.0f}; {:.1f} + {:.1f} + {:.1f}'.format(tt1, tt2, tt3, tl1, tl2, tl3), linewidth = 1)
 	plt.xlim(max(min(w), min(data[0]*1e4)), min(max(w), max(data[0])*1e4))
 	plt.tick_params(which='minor', bottom=True, top =True, left=True, right=True)
@@ -2355,8 +2039,6 @@ def plot_results(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real_
 		#plot the bimodal distribution, the best fit, and the corresponding component Gaussians
 		plt.figure()
 		plt.hist(t1, bins = t1_bins)
-		# plt.hist(t1[np.where(t1 >= t1_bins[t1_localmin])], bins = t1_bins[t1_localmin:], color = 'g')
-		# plt.hist(t1[np.where(t1 <= t1_bins[t1_localmin])], bins = t1_bins[:t1_localmin], color = '0.5')
 		plt.axvline(t1_bins[t1_localmin], color = 'k', linewidth = 2)
 		plt.plot(t1_bins, t1_count)
 		plt.plot(t1_bins, bimodal(t1_bins, *fit_t1), color = 'b')
@@ -2390,8 +2072,6 @@ def plot_results(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real_
 
 		plt.figure()
 		plt.hist(t2, bins = t2_bins)
-		# plt.hist(t2[np.where(t2 >= t2_bins[t2_localmin])], bins = t2_bins[t2_localmin:], color = 'g')
-		# plt.hist(t2[np.where(t2 <= t2_bins[t2_localmin])], bins = t2_bins[:t2_localmin], color = '0.5')
 		plt.axvline(t2_bins[t2_localmin], color = 'k', linewidth = 2)
 		plt.plot(t2_bins, t2_count)
 		plt.plot(t2_bins, bimodal(t2_bins, *fit_t2), color = 'b')
@@ -2421,8 +2101,6 @@ def plot_results(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real_
 
 		plt.figure()
 		plt.hist(r1, bins = r1_bins)
-		# plt.hist(t1[np.where(t1 >= t1_bins[t1_localmin])], bins = t1_bins[t1_localmin:], color = 'g')
-		# plt.hist(t1[np.where(t1 <= t1_bins[t1_localmin])], bins = t1_bins[:t1_localmin], color = '0.5')
 		plt.axvline(r1_bins[r1_localmin], color = 'k', linewidth = 2)
 		plt.plot(r1_bins, r1_count)
 		plt.plot(r1_bins, bimodal(r1_bins, *fit_r1), color = 'b')
@@ -2451,8 +2129,6 @@ def plot_results(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real_
 
 		plt.figure()
 		plt.hist(r2, bins = r2_bins)
-		# plt.hist(t2[np.where(t2 >= t2_bins[t2_localmin])], bins = t2_bins[t2_localmin:], color = 'g')
-		# plt.hist(t2[np.where(t2 <= t2_bins[t2_localmin])], bins = t2_bins[:t2_localmin], color = '0.5')
 		plt.axvline(r2_bins[r2_localmin], color = 'k', linewidth = 2)
 		plt.plot(r2_bins, r2_count)
 		plt.plot(r2_bins, bimodal(r2_bins, *fit_r2), color = 'b')
@@ -2911,29 +2587,13 @@ def plot_results(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real_
 	if len(a) == 8 and dist_fit == True:
 		tt1, tt2, tl1, tl2, ex, rad1, rad2, plx = a
 		ratio1 = rad2
-		# pri_h, sec_h, pri_k, sec_k = make_composite([tt1, tt2], [tl1, tl2], [rad1, rad2], plx, fr[2], fr[5], [min(wl), max(wl)], sp, ctm, ptm, tmi, tma, vs, models = models, plot = False, iso = True)
 	elif len(a) == 8 and dist_fit == False:
 		tt1, tt2, tl1, tl2, ex, rad1, rad2, plx = a
 		ratio1 = rad2
-		# pri_h, sec_h, pri_k, sec_k = make_composite([tt1, tt2], [tl1, tl2], [ratio1], False, fr[2], fr[5], [min(wl), max(wl)], sp, ctm, ptm, tmi, tma, vs, models = models, plot = False, iso = True)
 	else:	
 		tt1, tt2, tl1, tl2, te, ratio1 = a
-		# pri_h, sec_h, pri_k, sec_k = make_composite([tt1, tt2], [tl1, tl2], [ratio1], False, fr[2], fr[5], [min(wl), max(wl)], sp, ctm, ptm, tmi, tma, vs, models = models, plot = False, iso = True)
-	# pri_hk = pri_h - pri_k; sec_hk = sec_h - sec_k
-
-	# kcontrast = fr[0][-1]; composite_kmag = fr[3][-1]
-
-	# pri_kmag = -2.5*np.log10((10**(-0.4*composite_kmag))/(1 + 10**(-0.4*kcontrast))) - 5*np.log10((1/plx)/10)
-	# sec_kmag = -2.5*np.log10(10**(-0.4*composite_kmag) - (10**(-0.4*composite_kmag))/(1 + 10**(-0.4*kcontrast))) - 5*np.log10((1/plx)/10)
-
-	# ax.scatter(pri_hk, pri_kmag, marker= 'x', color = 'darkblue', s = 50, label = 'primary')
-	# ax.scatter(sec_hk, sec_kmag, marker ='x', color = 'darkorange', s = 50, label = 'secondary')
-	# ax.set_xlim(-0.5, 1)
-	# ax.set_ylim(9, 4)
 
 	l_intep = interp1d(teff5[:200], lum5[:200]); pri_lum = l_intep(tt1)
-
-	# print(pri_lum, tt1, teff5[find_nearest(teff5, tt1)], lum5[find_nearest(teff5[:100], tt1)],find_nearest(teff5, tt1), lum5[70:80], teff5[70:80], teff5[300:400])
 
 	sigma_sb = 5.670374e-5 #erg/s/cm^2/K^4
 	lsun = 3.839e33 #erg/s 
@@ -2957,7 +2617,6 @@ def plot_results(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real_
 	ax.tick_params('both', length=8, width=1.5, which='major')
 	ax.tick_params('both', length=4, width=1, which='minor')
 	ax.legend(loc = 'best', fontsize = 13)
-	# plt.gca().invert_yaxis()
 	fig.tight_layout()
 	#save the figure in the run directory
 	plt.savefig(run + '/plots/{}_isochrone.pdf'.format(fname))
@@ -3083,8 +2742,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 		#plot the bimodal distribution, the best fit, and the corresponding component Gaussians
 		plt.figure()
 		plt.hist(t1, bins = t1_bins)
-		# plt.hist(t1[np.where(t1 >= t1_bins[t1_localmin])], bins = t1_bins[t1_localmin:], color = 'g')
-		# plt.hist(t1[np.where(t1 <= t1_bins[t1_localmin])], bins = t1_bins[:t1_localmin], color = '0.5')
 		plt.axvline(t1_bins[t1_localmin], color = 'k', linewidth = 2)
 		plt.plot(t1_bins, t1_count)
 		plt.plot(t1_bins, bimodal(t1_bins, *fit_t1), color = 'b')
@@ -3118,8 +2775,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 
 		plt.figure()
 		plt.hist(t2, bins = t2_bins)
-		# plt.hist(t2[np.where(t2 >= t2_bins[t2_localmin])], bins = t2_bins[t2_localmin:], color = 'g')
-		# plt.hist(t2[np.where(t2 <= t2_bins[t2_localmin])], bins = t2_bins[:t2_localmin], color = '0.5')
 		plt.axvline(t2_bins[t2_localmin], color = 'k', linewidth = 2)
 		plt.plot(t2_bins, t2_count)
 		plt.plot(t2_bins, bimodal(t2_bins, *fit_t2), color = 'b')
@@ -3147,8 +2802,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 
 		plt.figure()
 		plt.hist(t3, bins = t3_bins)
-		# plt.hist(t2[np.where(t2 >= t2_bins[t2_localmin])], bins = t2_bins[t2_localmin:], color = 'g')
-		# plt.hist(t2[np.where(t2 <= t2_bins[t2_localmin])], bins = t2_bins[:t2_localmin], color = '0.5')
 		plt.axvline(t3_bins[t3_localmin], color = 'k', linewidth = 2)
 		plt.plot(t3_bins, t3_count)
 		plt.plot(t3_bins, bimodal(t3_bins, *fit_t3), color = 'b')
@@ -3178,8 +2831,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 
 		plt.figure()
 		plt.hist(r1, bins = r1_bins)
-		# plt.hist(t1[np.where(t1 >= t1_bins[t1_localmin])], bins = t1_bins[t1_localmin:], color = 'g')
-		# plt.hist(t1[np.where(t1 <= t1_bins[t1_localmin])], bins = t1_bins[:t1_localmin], color = '0.5')
 		plt.axvline(r1_bins[r1_localmin], color = 'k', linewidth = 2)
 		plt.plot(r1_bins, r1_count)
 		plt.plot(r1_bins, bimodal(r1_bins, *fit_r1), color = 'b')
@@ -3208,8 +2859,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 
 		plt.figure()
 		plt.hist(r2, bins = r2_bins)
-		# plt.hist(t2[np.where(t2 >= t2_bins[t2_localmin])], bins = t2_bins[t2_localmin:], color = 'g')
-		# plt.hist(t2[np.where(t2 <= t2_bins[t2_localmin])], bins = t2_bins[:t2_localmin], color = '0.5')
 		plt.axvline(r2_bins[r2_localmin], color = 'k', linewidth = 2)
 		plt.plot(r2_bins, r2_count)
 		plt.plot(r2_bins, bimodal(r2_bins, *fit_r2), color = 'b')
@@ -3238,8 +2887,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 
 		plt.figure()
 		plt.hist(r3, bins = r3_bins)
-		# plt.hist(t2[np.where(t2 >= t2_bins[t2_localmin])], bins = t2_bins[t2_localmin:], color = 'g')
-		# plt.hist(t2[np.where(t2 <= t2_bins[t2_localmin])], bins = t2_bins[:t2_localmin], color = '0.5')
 		plt.axvline(r3_bins[r3_localmin], color = 'k', linewidth = 2)
 		plt.plot(r3_bins, r3_count)
 		plt.plot(r3_bins, bimodal(r3_bins, *fit_r3), color = 'b')
@@ -3263,9 +2910,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 	#CREATE THE PHOTOMETRY AND CONTRAST PLOTS
 	###########
 
-	# a = np.median(sample, axis = 0)
-
-
 	plt.minorticks_on()
 	wl, spec, err = data
 	#unpack the best-fit stellar parameters 
@@ -3273,9 +2917,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 		tt1, tt2, tt3, te, rad1, ratio1, ratio2, plx = np.median(sample, axis = 0)
 		lg_guess = [get_logg(t, matrix) for t in [tt1, tt2, tt3]]
 
-	if len(a) == 8:
-		# if dist_fit == True:
-		# b = np.median(sample, axis = 0)	# print('composite')
 		ww, ss, c, pcwl, phot = make_composite([tt1, tt2, tt3], lg_guess, [rad1, rad2, rad3], plx, fr[2], fr[5], [min(wl), max(wl)], sp, ctm, ptm, tmi, tma, vs, models = models, plot = False, nspec = 3)
 		
 		w, spe, pri_spec, sec_spec, tri_spec, pri_mag, sec_mag, tri_mag = make_composite([tt1, tt2, tt3], [tl1, tl2, tl3], [rad1, rad2, rad3], plx, fr[2], fr[5], [5000, 24000], sp, ctm, ptm, tmi, tma, vs, models = models, plot = True, nspec = 3)
@@ -3283,14 +2924,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 		new_wl, new_spe = redres(w, spe, 250)
 		new_wl, new_secspec = redres(w, sec_spec, 250)
 		new_wl, new_trispec = redres(w, tri_spec, 250)
-
-		# new_wl, new_spe, new_prispec, new_secspec = new_wl[np.where((new_wl >= 5315) & (new_wl <= 23652))], new_spe[np.where((new_wl >= 5315) & (new_wl <= 23652))], new_prispec[np.where((new_wl >= 5315) & (new_wl <= 23652))], new_secspec[np.where((new_wl >= 5315) & (new_wl <= 23652))]
-		# new_trispec = new_trispec[np.where((new_wl >= 5315) & (new_wl <= 23652))]
-		# else:
-			# b = np.median(sample, axis = 0)
-		# 	# print('composite')
-			# ww, ss, c, pcwl, phot = make_composite([tt1, tt2], [tl1, tl2], [b[5], ratio1], plx, fr[2], fr[5], [min(wl), max(wl)], sp, ctm, ptm, tmi, tma, vs, models = models, plot = False)
-			# print(tt1, tt2, tl1, tl2, b[5], b[6], phot)
 
 		zp = [2.854074834606756e-09,1.940259205607388e-09,1.359859453789013e-09,3.1121838042516567e-10,1.1353317746392182e-10, 4.279017715611946e-11]
 		phot_cwl = [6175, 7489, 8946, 12350, 16620, 21590]
@@ -3301,7 +2934,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 		ax[0].errorbar(phot_cwl, 10**(-0.4*phot)*zp[:len(phot)], xerr = phot_width, color= 'seagreen', zorder = 0, linestyle = 'None')
 		b = ax[0].scatter(phot_cwl, 10**(-0.4*fr[3])*zp[:len(phot)], linestyle = 'None', color = 'k', marker = '.', s = 100, label = 'Data phot.')
 		m = ax[0].plot(new_wl, new_spe, color = 'seagreen', linewidth = 1, zorder = 0, alpha = 0.5)
-		# ax[0].set_ylim(max(phot) + 0.5, min(phot) - 0.5)	
 		plt.minorticks_on()
 		ax[0].set_xscale('log')
 		ax[0].set_yscale('log')
@@ -3310,14 +2942,8 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 		ax[0].tick_params(which='both', labelsize = 12, direction='in')
 		ax[0].tick_params('both', length=8, width=1.5, which='major')
 		ax[0].tick_params('both', length=4, width=1, which='minor')
-		# ax[0].set_xlabel(r'Wavelength (\AA)', fontsize = 14)
 		ax[0].set_ylabel('{}'.format(r'Flux (erg s$^{-1}$ cm$^{-2}$ \AA$^{-1}$)'), fontsize = 12)
 
-		# y_minor = matplotlib.ticker.LinearLocator(numticks = int(len(np.arange(min(phot) -0.5, max(phot) + 0.75, 0.2))))
-		# ax[0].yaxis.set_minor_locator(y_minor)
-		# ax[0].yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
-
-		# ax2 = ax[0].twinx()
 		f = ax[1].scatter(ctm[3][:int(len(c)/2)], c[:int(len(c)/2)], color = 'blue', marker = 'v', label = 'Sec. contrast', zorder = 2)
 		m = ax[1].scatter(ctm[3][int(len(c)/2):], c[int(len(c)/2):], color = 'gold', marker = 'v', label = 'Tri. contrast', zorder = 2)
 		ax[1].errorbar(ctm[3], fr[0], yerr = fr[1], linestyle = 'None', capsize = 4, capthick = 2, color = 'k', marker = 'v', zorder = 1)
@@ -3326,9 +2952,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 		ax[1].plot(new_wl, 2.5*np.log10(new_prispec) - 2.5*np.log10(new_trispec), color = 'gold', linewidth = 1, zorder = 0, alpha = 0.5)
 		ax[1].set_ylabel(r'$\Delta$ mag', fontsize = 12)
 
-		# y_minor = matplotlib.ticker.LinearLocator(numticks = 15)
-		# ax[1].yaxis.set_minor_locator(y_minor)
-		# ax[1].yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
 		plt.minorticks_on()
 		ax[1].tick_params(which='minor', bottom=True, top =True, left=True, right=True)
 		ax[1].tick_params(bottom=True, top =True, left=True, right=True)
@@ -3360,44 +2983,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 		plt.savefig(run + '/plots/{}_phot_scatter.pdf'.format(fname))
 		plt.close()
 
-	else:
-		ww, ss, c, pcwl, phot = make_composite([tt1, tt2], [tl1, tl2], [ratio1], False, fr[2], fr[5], [min(wl), max(wl)], sp, ctm, ptm, tmi, tma, vs, models = models, plot = False)
-		fig,ax = plt.subplots(nrows = 2, gridspec_kw = dict(hspace = 0, height_ratios = [3, 1]), sharex = True, figsize = (7,6))
-		f = ax[0].scatter(ctm[3], c, color = 'blue', marker = 'v', label = 'Model contrast', zorder = 2)
-		g = ax[0].errorbar(ctm[3], fr[0], yerr = fr[1], linestyle = 'None', capsize = 4, capthick = 2, color = 'k', marker = 'v', label = 'Data contrast', zorder = 1)
-		ax[0].set_ylabel('Contrast (mag)', fontsize = 12)
-		# y_minor = matplotlib.ticker.LinearLocator(numticks = 15)
-		# ax[0].yaxis.set_minor_locator(y_minor)
-		# ax[0].yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
-		plt.minorticks_on()
-		ax[0].tick_params(which='minor', bottom=True, top =True, left=True, right=True)
-		ax[0].tick_params(bottom=True, top =True, left=True, right=True)
-		ax[0].tick_params(which='both', labelsize = 14, direction='in')
-		ax[0].tick_params('both', length=8, width=1.5, which='major')
-		ax[0].tick_params('both', length=4, width=1, which='minor')
-
-		d = ax[1].axhline(0, color = '0.3', linestyle = '--', linewidth = 2, label = 'No resid.')
-		h = ax[1].scatter(ctm[3], np.array(fr[0])-np.array(c), color = 'blue', marker = 'x', label = 'Cont. resid.',s = 50)
-		plt.minorticks_on()
-		ax[1].tick_params(which='minor', bottom=True, top =True, left=True, right=True)
-		ax[1].tick_params(bottom=True, top =True, left=True, right=True)
-		ax[1].tick_params(which='both', labelsize = 14, direction='in')
-		ax[1].tick_params('both', length=8, width=1.5, which='major')
-		ax[1].tick_params('both', length=4, width=1, which='minor')
-		ax[1].set_xlabel(r'Wavelength ($\AA$)', fontsize = 12)
-		ax[1].set_ylabel('{}'.format(r'Residual (mag)'), fontsize = 12)
-		ax[1].set_xscale('log')
-		fig.align_ylabels(ax)
-
-		handles, labels = plt.gca().get_legend_handles_labels()
-		handles.extend([f,g])
-
-		ax[0].legend(handles = handles, loc = 'best', fontsize = 10, ncol = 2)
-
-		plt.tight_layout()
-		plt.savefig(run + '/plots/{}_phot_scatter.pdf'.format(fname))
-		plt.close()
-
 	############
 	#CREATE THE COMPOSITE + COMPONENET + DATA PLOT (all_spec)
 	###########
@@ -3412,8 +2997,8 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 	itep = interp1d(w, spe)
 	spe = itep(wl*1e4)
 
-	pri_ratio =  (np.median(spec)/np.median(spe))#*(1/(1+ratio1**2))
-	sec_ratio = (np.median(spec)/np.median(spe)) #* (ratio1)
+	pri_ratio =  (np.median(spec)/np.median(spe))
+	sec_ratio = (np.median(spec)/np.median(spe)) 
 
 	i1 = interp1d(w, pri_spec)
 	pri_spec = i1(wl*1e4)
@@ -3447,7 +3032,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 	ax.plot(wl*1e4, tri_spec, linewidth = 1, label = 'Tertiary: {:.0f}K + {:.1f}dex'.format(tt3, tl3), color = 'crimson', zorder = 3)
 
 	for n in range(len(random_sample)):
-		# if n == 0:
 		if len(a) == 8 and dist_fit == True:
 			t1, t2, t3, e, r1, r2, r3, pl = random_sample[n]
 			dist = 1/pl
@@ -3460,7 +3044,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 
 		else:
 			print('spectrum generation error!')
-		# sspe = extinct(ww, sspe, e)
 		ite = interp1d(ww, sspe)
 		sspe = ite(wl*1e4)
 
@@ -3508,7 +3091,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 			real_wl, rspec, rpspec, rsspec, rtspec, pri_mag, sec_mag, tri_mag = make_composite([rt1, rt2, rt3], real_logg, [ratio, ratio2], False, fr[2], fr[5], [min(wl), max(wl)], sp, ctm, ptm, tmi, tma, vs, models = models, plot = True, nspec = 3)
 		else:
 			print('spec generation error')
-		# rspec = extinct(real_wl, rspec, re)
 		rspec *= np.median(spec)/np.median(rspec[np.where((real_wl < max(wl * 1e4)) & (real_wl > min(wl * 1e4)))])
 
 	fig, ax = plt.subplots()
@@ -3516,7 +3098,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 	ax.plot(wl*1e4, spe, linewidth = 1, label = 'Model: {:.0f}K + {:.0f}K; {:.1f}dex + {:.1f}dex'.format(tt1, tt2, tl1, tl2), color = 'xkcd:sky blue', zorder=1)
 	if not real_val[0] == 0:
 		ax.plot(real_wl, rspec, linewidth = 1, color = 'xkcd:grass green', label = 'B15 values: {:.0f}K + {:.0f}K; {:.1f}dex + {:.1f}dex'.format(rt1, rt2, rl1, rl2))
-	# ax.set_xlim(max(min(w), min(wl*1e4)), min(max(w), max(wl)*1e4))
 	ax.set_xlim(8500, 8700)
 	plt.minorticks_on()
 	ax.tick_params(which='minor', bottom=True, top =True, left=True, right=True)
@@ -3870,8 +3451,6 @@ def main(argv):
 
 	data = [data_wl, dsp]
 
-	# dwl = data_wl#np.arange(min(data_wl)-2e-4, max(data_wl)+2e-4, 5e-5)
-
 	t1 = time.time()
 	specs = spec_interpolator([float(pardict['spmin'])*1e4, float(pardict['spmax'])*1e4], [int(pardict['tmin']), int(pardict['tmax'])], [4,5.5], \
 		[int(pardict['specmin']), int(pardict['specmax'])], resolution = res, models = models)
@@ -3925,14 +3504,8 @@ def main(argv):
 
 	nspec, ndust = int(pardict['nspec']), int(pardict['ndust'])
 	
-	# phot_flux = [10**(-0.4 * c) for c in phot]
-	# phot_err_flux = [np.median((10**(-0.4 *(phot[n] + phot_err[n])) - (10**(-0.4 * phot[n])), 10 ** (-0.4 * (phot[n] - phot_err[n])) - (10 ** (-0.4 * phot[n])))) for n in range(len(phot_err))] 
-	# print(phot_err_flux)
-	#flux ratio and photometry error
-	# err2 = [np.median((10**(-0.4 *(mags[n] + me[n])) - (10**(-0.4 * mags[n])), 10 ** (-0.4 * (mags[n] - me[n])) - (10 ** (-0.4 * mags[n])))) for n in range(len(me))]
 	#give everything in fluxes
 	fr = [mags, me, filts, phot, phot_err, phot_filt]
-	# fr = [[10**(-0.4 * m) for m in mags], filts, err2]
 
 	tmi, tma = np.inf, 0
 
@@ -3954,45 +3527,7 @@ def main(argv):
 		if max(w) > tma:
 			tma = max(w)
 
-	# for n in range(len(phot_tras)):
-	# 	ran, tm = np.array(phot_wls[n]), np.array(phot_tras[n])
-	# 	phot_tras[n] = synphot.SpectralElement(synphot.models.Empirical1D, points = ran*u.Unit('AA'), lookup_table = tm * u.dimensionless_unscaled, keep_neg = True)
-
-	# print(wls)
 	ctm, ptm = [wls, tras, n_res_el, cwl], [phot_wls, phot_tras, phot_resel, phot_cwl]
-
-	# for n, t2 in enumerate([3025,3225,3425,3625,3800]):#[3225, 3425, 3625, 3825, 4025, 4175]):#
-	# 	t1 =  3850  # #4500  . 4200
-	# 	r1 =  0.4994   # 0.6162 
-	# 	r2 = [0.1546, 0.2149, 0.3048, 0.3910, 0.4745][n] #[0.2149, 0.3048, 0.3910, 0.4870, 0.5791, 0.6039][n] #
-	# 	lg1 = 4.76 # 4.67 
-	# 	lg2 = [5.16, 5.06, 4.96, 4.87, 4.79][n] #[5.06, 4.96, 4.87, 4.77, 4.70, 4.68][n] #
-
-	# for n, t2 in enumerate([3001, 3501, 4001, 4501]):
-	# 	t1 =  5000
-	# 	r1 =  0.755  
-	# 	r2 = [0.149, 0.331, 0.569, 0.666][n] 
-	# 	lg1 = 4.59
-	# 	lg2 = [5.16, 4.94, 4.7, 4.64][n] 
-
-	# for n, t2 in enumerate([3501, 4001, 4501, 5001, 5501]):
-	# 	t1 =  6000
-	# 	r1 =  1.043 
-	# 	r2 = [0.331, 0.569, 0.666, 0.755, 0.851][n]
-	# 	lg1 = 4.43 
-	# 	lg2 = [4.94, 4.7, 4.64, 4.59, 4.54][n] 
-
-	# 	comp_wl, comp_spec, contrast, phot_cwl, photometry = make_composite([t1, t2], [lg1, lg2], [r1,r2/r1], plx, ['880','K'], ['sdsss,r','sdss,i','sdss,z','J', 'H', 'K'], [min(data_wl),max(data_wl)], specs, ctm, ptm, tmi, tma, vs2)  
-	# 	print(contrast, photometry, t2)
-	# 	# print(min(comp_wl), min(data_wl), max(comp_wl), max(data_wl))
-	# 	# # plt.plot(comp_wl, comp_spec/np.median(comp_spec[np.where((comp_wl < max(data_wl*1e4)) & (comp_wl > min(data_wl*1e4)))]), linewidth = 1)
-	# 	# # plt.plot(data_wl*1e4, dsp, linewidth = 1)
-	# 	# # plt.xlim(5500,9000)
-	# 	# # plt.savefig('test_data.pdf')
-	# 	itep = interp1d(comp_wl, comp_spec); comp_spec = itep(data_wl*1e4)
-	# 	err = np.random.normal(0, 0.01*comp_spec)
-
-	# 	np.savetxt('Data/synth_spec_{}_{}.txt'.format(t1, t2), np.column_stack((data_wl, comp_spec + err, err)))
 
 	dirname, fname = pardict['dirname'], pardict['fname']
 
@@ -4007,10 +3542,8 @@ def main(argv):
 
 	optkey, optval = arguments[1]
 	if optval == 'True':
-		# if dist_true == True:
 		optimize_fit(dirname, data, de, specs, nwalk1, fr, [plx, plx_err], [av, av_err], res, ctm, ptm, tmi, tma, vs2, matrix, ra, dec, nspec = nspec, cutoff = cutoff, nstep = nstep, nburn = nburn, con = False, models = models, dist_fit = dist_true, rad_prior = rp)
-		# else:
-		# 	optimize_fit(dirname, data, de, specs, nwalk1, fr, False, [av, av_err], res, ctm, ptm, tmi, tma, vs, cutoff = cutoff, nstep = nstep, nburn = nburn, con = False, models = models)
+		
 		if nspec == 2:
 			plot_fit(dirname, data, specs, fr, ctm, ptm, tmi, tma, vs2, matrix, models = models, dist_fit = dist_true)
 		elif nspec == 3:
@@ -4031,10 +3564,6 @@ def main(argv):
 		if nspec == 3:
 			p0 += np.random.normal(np.zeros(np.shape(p0)), 0.05*p0, np.shape(p0))
 
-		# p0 = np.hstack((p0[:,0:4], p0[:,5:]))
-		#dimensions: t1, t2, lg1, lg2, av, normalization (of composite spectrum w data spectrum)
-
-		# if dist_true == True:
 		nwalkers, nsteps, ndim, nburn = len(p0), int(pardict['nsteps']), len(pars[0]), int(pardict['nburn'])
 
 		real_val = list([float(p) for p in pardict['real_values'].strip('[]\n').split(',')])
@@ -4044,22 +3573,9 @@ def main(argv):
 		elif nspec == 3:
 			title_format = ['.0f', '.0f', '.0f', '.2f', '.2f', '.2f', '.2f', '.2f', '.2f']
 
-		# if dist_true == True:
 		a = run_emcee(dirname, fname, nwalkers, nsteps, ndim, nburn, p0, fr, nspec, ndust, data, de, res, [min(data_wl), max(data_wl)], specs, real_val, ctm, ptm, tmi, tma, vs2, title_format, matrix, ra, dec,\
 				nthin=100, w = 'aa', pys = False, du = False, prior = [*np.zeros(len(pars[0])*2-2),plx,plx_err], models = models, av = True, dist_fit = dist_true, rad_prior = rp)
 		
-		# else:
-		# 	a = run_emcee(dirname, fname, nwalkers, nsteps, ndim, nburn, p0, fr, nspec, ndust, data, de, res, [min(data_wl), max(data_wl)], specs, real_val, ctm, ptm, tmi, tma, vs,\
-		# 		nthin=50, w = 'aa', pys = False, du = False, prior = 0, models = models, av = 0, dist_fit = dist_true)
-		
-		# else:
-		# 	nwalkers, nsteps, ndim, nburn = len(p0), int(pardict['nsteps']), 6, int(pardict['nburn'])
-
-		# 	real_val = list([float(p) for p in pardict['real_values'].strip('[]\n').split(',')])
-
-		# 	a = run_emcee(dirname, fname, nwalkers, nsteps, ndim, nburn, p0, fr, nspec, ndust, data, de, res, [min(data_wl), max(data_wl)], specs, real_val, ctm, ptm, tmi, tma, vs,\
-		# 		nthin=50, w = 'aa', pys = False, du = False, prior = 0, models = models, av = 0, dist_fit = dist_true)
-
 		a = np.genfromtxt(dirname + '/samples.txt')
 		dw, ds, de = np.genfromtxt(pardict['filename']).T
 		dw, ds, de = dw[np.where((dw > float(pardict['spmin'])) & (dw < float(pardict['spmax'])))], \
@@ -4080,7 +3596,4 @@ def main(argv):
 	return 
 
 if __name__ == "__main__":
-	# try:
 	main(sys.argv)
-	# except:
-	# 	print('Exception! Must include a parameter file as a command line argument')
