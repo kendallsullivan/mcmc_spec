@@ -1,1 +1,1 @@
-This code exists to retrieve the best-fit properties (temperature, Av, and radius/radius ratio
+This code exists to retrieve the best-fit properties (temperature, Av, and radius/radius ratio) for the components of a binary star. In its simplest form, you can run it using "python mft6.py -f paramfile -o T/F -e T/F". An example parameter file is included in the repo. To make the correct corner plots, the version of corner included in the repo is necessary (or just modify your local install so it indexes over title format strings). 
