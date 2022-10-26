@@ -2,7 +2,8 @@
 
 import numpy as np
 import synphot
-import matplotlib; matplotlib.use('Agg'); from matplotlib import pyplot as plt
+import matplotlib; matplotlib.use('Agg')
+from matplotlib import pyplot as plt
 from astropy.io import fits
 import os 
 from glob import glob
@@ -187,6 +188,11 @@ def make_reg(wl, flux, waverange):
 	fluxslice = wl_interp(wlslice)
 	#return the new wavelength and flux
 	return np.array(wlslice), np.array(fluxslice)
+
+def norm_spec(wl, model, data):
+	frac = data/model
+	p_fitted = np.polynomial.Polynomial.fit(wl, frac, deg=2)
+	return data/p_fitted(wl)
 
 def interp_2_spec(spec1, spec2, ep1, ep2, val):	
 	ret_arr = []
@@ -587,15 +593,23 @@ def get_transmission(f, res):
 				syst = 'nirc2'
 	except:
 		print('Please format your filter as, e.g., "Johnson, V". The input is case insensitive.')
-	# print(syst, fil)
 	#now get the fits file version of the transmission curve from the "bps" directory
 	#which should be in the same directory as the code
 	#many of these have their own weird format so hard code some of them 
 	if fil == 'lp600' or fil == 'LP600': #got the transmission curve from Baranec et al 2014 (ApJL: High-efficiency Autonomous Laser Adaptive Optics)
 		filtfile = np.genfromtxt('bps/lp600.csv', delimiter = ',')
 		t_wl, t_cv = filtfile[:,0]* 10, filtfile[:,1]
+	elif syst.lower() == 'gaia' and fil == 'g':
+		t_wl, t_cv = np.genfromtxt('bps/gaia_g_pb.txt').T
+		t_wl *= 1e1
+	elif syst.lower() == 'gaia' and fil == 'rp':
+		t_wl, t_cv = np.genfromtxt('bps/gaia_rp_pb.txt').T
+		t_wl *= 1e1
+	elif syst.lower() == 'gaia' and fil == 'bp':
+		t_wl, t_cv = np.genfromtxt('bps/gaia_bp_pb.txt').T
+		t_wl *= 1e1
 	elif syst == 'kep':
-		t_wl, t_cv = np.genfromtxt('bps/Kepler_Kepler.K.dat', unpack = True)
+		t_wl, t_cv = np.genfromtxt('bps/Kepler_Kepler.K.dat').T
 	elif syst == 'nirc2':
 		t_wl, t_cv = np.genfromtxt('bps/Keck_NIRC2.Brgamma.dat').T
 	elif syst == '2mass' or syst == '2MASS':  
@@ -629,7 +643,6 @@ def get_transmission(f, res):
 	#so I suppose this is deprecated now, but it's still built in as a nuisance parameter for all the calls to this function so might as well leave it in for now
 	res_element = np.mean(t_wl)/res
 	n_resel = (max(t_wl) - min(t_wl))/res_element
-
 	#return the wavelength array, the transmission curve, the number of resolution elements in the bandpass, and the central wavelength
 	return t_wl, t_cv, n_resel, np.mean(t_wl)
 
@@ -856,6 +869,7 @@ def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_
 
 	#normalize the model to match the median of the data
 	init_cspec*=np.median(flux)/np.median(init_cspec)
+	flux = norm_spec(wl, init_cspec, flux) 
 
 	#calculate the chi square value of the spectrum fit
 	ic = chisq(init_cspec, flux, err)
@@ -932,10 +946,10 @@ def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_
 		n = 0
 		total_n = 0
 		#as long as both counters are below the set limits 
-		while n < steps + burn and total_n < (50 * steps):
+		while n < steps and total_n < (50 * steps):
 
 			#if we're halfway through reduce the step size significantly to refine the fit in chi^2 surface assuming the coarse step got us to the approximate correct minimum
-			if n > (burn + steps/2):
+			if n > (steps/2):
 				if nspec == 2:
 					si = [[20, 20], [0.01], [0.05 * r for r in rad_guess], [0.005*dist]]
 				elif nspec == 3:
@@ -945,12 +959,6 @@ def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_
 			#and then vary all the parameters simultaneously using the correct std dev
 			var_par = make_varied_param(gi, si)
 
-			pos = SkyCoord(ra*u.deg, dec*u.deg, distance = (1/var_par[3])*u.pc)
-			av_guess = bayestar(pos, mode = 'samples') * 3.1 * 0.884
-			av_guess_mu = np.mean(av_guess); av_guess_sig = np.std(av_guess)
-			if av_guess_sig == 0:
-				av_guess_sig = 0.05
-
 			# print(var_par, tlim, llim)
 			#make sure that everything that got varied was inside the parameter limits
 			if all(min(tlim) < v < max(tlim) for v in var_par[0])  and 0 <= var_par[1] and all(0.05 < r < 1.5 for r in var_par[2])\
@@ -958,6 +966,12 @@ def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_
 				#we made it through, so increment the counters by 1 to count the function call
 				total_n += 1
 				n += 1
+
+				pos = SkyCoord(ra*u.deg, dec*u.deg, distance = (1/var_par[3])*u.pc)
+				av_guess = bayestar(pos, mode = 'samples') * 3.1 * 0.884
+				av_guess_mu = np.mean(av_guess); av_guess_sig = np.std(av_guess)
+				if av_guess_sig == 0:
+					av_guess_sig = 0.05
 
 				logg_guess = [get_logg(v, matrix) for v in var_par[0]]
 				#create a test data set using the guess parameters
@@ -1021,8 +1035,8 @@ def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_
 					#save the new chi^2
 					chi = test_cs 
 					#if we're more than halfway through, just go back to the small variations, don't start all over again
-					if n > (steps/2 + burn):
-						n = steps/2 + burn + 1
+					if n > (steps/2):
+						n = steps/2 + 1
 					#but if we're less than halfway through, start the fit over because we want to go until we've tried n guesses without a better guess
 					else:
 						n = 0
@@ -1062,10 +1076,10 @@ def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_
 				#distance (as parallax)
 				while var_par[3] > 1/100 and total_n < (50*steps):
 					total_n += 1
-					var_par[3] -= 0.1 * np.abs(var_par[3])
+					var_par[3] -= 0.01 * np.abs(var_par[3])
 				while var_par[3] < 1/3000 and total_n < (50*steps):
 					total_n += 1
-					var_par[3] += 0.1*np.abs(var_par[3])
+					var_par[3] += 0.01* np.abs(var_par[3])
 
 		if nspec == 2:
 			#save all the guessed best-fit parameters to a file 
@@ -1131,6 +1145,8 @@ def loglikelihood(p0, fr, nspec, ndust, data, err, broadening, r, specs, ctm, pt
 
 	#normalize the model
 	init_cspec *= np.median(spec)/np.median(init_cspec)
+	spec = norm_spec(wl, init_cspec, spec) 
+
 
 	#calculate the chi square value of that fit
 	ic = chisq(init_cspec, spec, err)
@@ -1442,49 +1458,49 @@ def run_emcee(dirname, fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndu
 	#just take the extrema of the range of entry values to be the upper and lower limits for the values allowed by the prior
 	tmin, tmax = min(t), max(t)
 
-	count = mp.cpu_count()
-	with mp.Pool(processes = 15) as pool:
-		sampler = emcee.EnsembleSampler(nwalkers, ndim, logposterior, threads=nwalkers, args=[fr, nspec, ndust, data, err, broadening, r, specs, ctm, ptm, tmi, tma, vs, tmin, tmax, matrix, ra, dec], \
-		kwargs={'pysyn': pys, 'dust': du, 'norm':no, 'prior':prior, 'a':av, 'models':models, 'dist_fit':dist_fit, 'rad_prior':rad_prior})
+	# count = mp.cpu_count()
+	# with mp.Pool(processes = 15) as pool:
+	# 	sampler = emcee.EnsembleSampler(nwalkers, ndim, logposterior, threads=nwalkers, args=[fr, nspec, ndust, data, err, broadening, r, specs, ctm, ptm, tmi, tma, vs, tmin, tmax, matrix, ra, dec], \
+	# 	kwargs={'dust': du, 'norm':no, 'prior':prior, 'a':av, 'models':models, 'dist_fit':dist_fit, 'rad_prior':rad_prior})
 
-		for n, s in enumerate(sampler.sample(pos, iterations = nburn)):
-			if n % nthin == 0:
-				with open('{}/{}_{}_burnin.txt'.format(dirname,fname, n), 'ab') as f:
-					f.write(b"\n")
-					np.savetxt(f, s.coords)
-					f.close() 
+	# 	for n, s in enumerate(sampler.sample(pos, iterations = nburn)):
+	# 		if n % nthin == 0:
+	# 			with open('{}/{}_{}_burnin.txt'.format(dirname,fname, n), 'ab') as f:
+	# 				f.write(b"\n")
+	# 				np.savetxt(f, s.coords)
+	# 				f.close() 
 
-		state = sampler.get_last_sample()
-		sampler.reset()
+	# 	state = sampler.get_last_sample()
+	# 	sampler.reset()
 
-		old_acl = np.inf
-		for n, s in enumerate(sampler.sample(state, iterations = nsteps)):
-			if n % nthin == 0:
-				with open('{}/{}_{}_results.txt'.format(dirname,fname, n), 'ab') as f:
-					f.write(b'\n')
-					np.savetxt(f, s.coords)
-					f.close()
+	# 	old_acl = np.inf
+	# 	for n, s in enumerate(sampler.sample(state, iterations = nsteps)):
+	# 		if n % nthin == 0:
+	# 			with open('{}/{}_{}_results.txt'.format(dirname,fname, n), 'ab') as f:
+	# 				f.write(b'\n')
+	# 				np.savetxt(f, s.coords)
+	# 				f.close()
 					
-				acl = sampler.get_autocorr_time(quiet = True)
-				macl = np.mean(acl)
+	# 			acl = sampler.get_autocorr_time(quiet = True)
+	# 			macl = np.mean(acl)
 
-				with open('{}/{}_autocorr.txt'.format(dirname,fname), 'a') as f:
-					f.write(str(macl) + '\n')
+	# 			with open('{}/{}_autocorr.txt'.format(dirname,fname), 'a') as f:
+	# 				f.write(str(macl) + '\n')
 			
-				if not np.isnan(macl):
-					converged = np.all(acl * 50 < n)
-					converged &= np.all((np.abs(old_acl - acl) / acl) < 0.1)
-					if converged == True:
-						break
+	# 			if not np.isnan(macl):
+	# 				converged = np.all(acl * 50 < n)
+	# 				converged &= np.all((np.abs(old_acl - acl) / acl) < 0.1)
+	# 				if converged == True:
+	# 					break
 
-				old_acl = acl
-		print("Mean acceptance fraction: {0:.3f}".format(np.mean(sampler.acceptance_fraction)))
+	# 			old_acl = acl
+	# 	print("Mean acceptance fraction: {0:.3f}".format(np.mean(sampler.acceptance_fraction)))
 
-		samples = sampler.chain[:, :, :].reshape((-1, ndim))
+	# 	samples = sampler.chain[:, :, :].reshape((-1, ndim))
 
-		np.savetxt(os.getcwd() + '/{}/samples.txt'.format(dirname), samples)
+	# 	np.savetxt(os.getcwd() + '/{}/samples.txt'.format(dirname), samples)
 
-	# samples = np.genfromtxt(os.getcwd()+'/{}/samples.txt'.format(dirname))
+	samples = np.genfromtxt(os.getcwd()+'/{}/samples.txt'.format(dirname))
 
 	if ndim == 6:
 		samples[:,-1] *= 1e3
@@ -1695,16 +1711,17 @@ def optimize_fit(dirname, data, err, specs, nwalk, fr, dist_arr, av, res, ctm, p
 
 	dist = np.random.normal(dist_arr[0], dist_arr[1], nwalk)
 
+	dist = np.abs(dist)
 	with mp.Pool(processes = 15) as pool:
 
 		if nspec == 2:
 			out = [pool.apply_async(fit_spec, \
 					args = (n, dirname, data[0], data[1], err, [min(data[0]), max(data[0])], [t1[n], t2[n]], [e1[n], av[0], av[1]], [rg1[n], rg2[n]], fr, specs, [tmin, tmax], [dist[n], dist_arr[0], dist_arr[1]], ctm, ptm, tmi, tma, vs, matrix, ra, dec), \
-					kwds = dict(cs = cutoff, steps = nstep, burn = nburn, conv = con, models = models, dist_fit = dist_fit, rad_prior = rad_prior)) for n in range(nwalk)]
+					kwds = dict(steps = nstep, models = models, dist_fit = dist_fit, rad_prior = rad_prior)) for n in range(nwalk)]
 		elif nspec == 3:
 			out = [pool.apply_async(fit_spec, \
 				args = (n, dirname, data[0], data[1], err, [min(data[0]), max(data[0])], [t1[n], t2[n], t3[n]], [e1[n], av[0], av[1]], [rg1[n], rg2[n], rg3[n]], fr, specs, [tmin, tmax], [dist[n], dist_arr[0], dist_arr[1]], ctm, ptm, tmi, tma, vs, matrix, ra, dec), \
-				kwds = dict(nspec = 3, cs = cutoff, steps = nstep, burn = nburn, conv = con, models = models, dist_fit = dist_fit, rad_prior = rad_prior)) for n in range(nwalk)]
+				kwds = dict(nspec = 3, steps = nstep, models = models, dist_fit = dist_fit, rad_prior = rad_prior)) for n in range(nwalk)]
 
 		a = [o.get() for o in out]
 
@@ -2302,6 +2319,7 @@ def plot_results(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real_
 	sec_spec *= sec_ratio
 
 	spe *= np.median(spec)/np.median(spe)
+	spec = norm_spec(wl, spe, spec) 
 
 	if tell == True:
 		regions = [[6860, 6880], [7600, 7660], [8210, 8240]]
@@ -2436,7 +2454,7 @@ def plot_results(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real_
 	#COMPUTE AND CREATE THE KEPLER CONTRAST AND CORRECTION FACTOR PLOTS
 	###########
 
-	kep_sample = sample[np.random.choice(len(sample), size = int(1500), replace = False), :]
+	kep_sample = sample[np.random.choice(len(sample), size = int(2000), replace = False), :]
 	kep_contrast = []; kep_rad = []
 	for n in range(len(kep_sample)):
 		if len(a) == 6 and dist_fit == True:
@@ -2584,11 +2602,11 @@ def plot_results(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real_
 			ax.plot(np.array(teff)[np.where(np.array(aage) == a1[n])], np.log10(np.array(lum)[np.where(np.array(aage) == a1[n])]), color = cm.plasma(a1[n]/10), zorder = 0)#, label = '{}'.format(int(np.around(a1[n]))))
 
 	#calculate the intrinsic H and K mags from the SED to get the color
-	if len(a) == 8 and dist_fit == True:
-		tt1, tt2, tl1, tl2, ex, rad1, rad2, plx = a
+	if len(a) == 6 and dist_fit == True:
+		tt1, tt2, ex, rad1, rad2, plx = a
 		ratio1 = rad2
-	elif len(a) == 8 and dist_fit == False:
-		tt1, tt2, tl1, tl2, ex, rad1, rad2, plx = a
+	elif len(a) == 6 and dist_fit == False:
+		tt1, tt2, ex, rad1, rad2, plx = a
 		ratio1 = rad2
 	else:	
 		tt1, tt2, tl1, tl2, te, ratio1 = a
@@ -2627,7 +2645,7 @@ def plot_results(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real_
 	pmass_posterior = []; plum_posterior = []
 	smass_posterior = []; slum_posterior = []
 	for n in range(len(kep_sample)):
-		tt1, tt2, tl1, tl2, ex, rad1, rad2, plx = kep_sample[n,:]
+		tt1, tt2, ex, rad1, rad2, plx = kep_sample[n,:]
 		interp_map = ma_intep(tt1)
 		interp_mas = ma_intep(tt2)
 		pmass_posterior.append(float(interp_map)); smass_posterior.append(float(interp_mas))
@@ -3281,7 +3299,7 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 	hk_color = np.array(hmag) - np.array(kmag)
 	aage = aage[np.where((aage > 0.1) & (aage < 8))]
 
-	lum, lum5 = [10**l for l in lum], [10**l for l in lum5]; teff, teff5 = [10**t for t in teff], [10**t for t in teff5]
+	# lum, lum5 = [10**l for l in lum], [10**l for l in lum5]; teff, teff5 = [10**t for t in teff], [10**t for t in teff5]
 
 	#remove redundant ages from the age vector
 	a1 = [aage[0]]
@@ -3304,8 +3322,6 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 			ax.plot(np.array(teff)[np.where(np.array(aage) == a1[n])], np.log10(np.array(lum)[np.where(np.array(aage) == a1[n])]), color = cm.plasma(a1[n]/10), zorder = 0)#, label = '{}'.format(int(np.around(a1[n]))))
 
 	l_intep = interp1d(teff5[:200], lum5[:200]); pri_lum = l_intep(tt1)
-
-	# print(pri_lum, tt1, teff5[find_nearest(teff5, tt1)], lum5[find_nearest(teff5[:100], tt1)],find_nearest(teff5, tt1), lum5[70:80], teff5[70:80], teff5[300:400])
 
 	sigma_sb = 5.670374e-5 #erg/s/cm^2/K^4
 	lsun = 3.839e33 #erg/s 
@@ -3467,8 +3483,18 @@ def main(argv):
 	me = list([float(p) for p in pardict['cerr'].strip('[]').split(',')])
 	filts = np.array([p.strip('\\') for p in pardict['cfilt'].strip('[] ').split('\'')])
 	filts = np.array([p for p in filts if len(p) >= 1 and not p == ','])
+	try:
+		oldphot = list([float(p) for p in pardict['pmag'].strip('[]').split(',')])
+	except:
+		if 'np.nan' in pardict['pmag']:
+			oldphot = list([p for p in pardict['pmag'].strip('[]').split(',')])
+			for n,p in enumerate(oldphot):
+				if p == 'np.nan':
+					oldphot[n] = np.nan
+				else:
+					oldphot[n] = float(p)
 
-	oldphot = list([float(p) for p in pardict['pmag'].strip('[]').split(',')])
+					
 	phot_err = list([float(p) for p in pardict['perr'].strip('[]').split(',')])
 	phot_filt = np.array([p.strip('\\') for p in pardict['pfilt'].strip('[] ').split('\'')])
 	phot_filt = np.array([p for p in phot_filt if len(p) >= 1 and not p == ','])
@@ -3574,7 +3600,7 @@ def main(argv):
 			title_format = ['.0f', '.0f', '.0f', '.2f', '.2f', '.2f', '.2f', '.2f', '.2f']
 
 		a = run_emcee(dirname, fname, nwalkers, nsteps, ndim, nburn, p0, fr, nspec, ndust, data, de, res, [min(data_wl), max(data_wl)], specs, real_val, ctm, ptm, tmi, tma, vs2, title_format, matrix, ra, dec,\
-				nthin=100, w = 'aa', pys = False, du = False, prior = [*np.zeros(len(pars[0])*2-2),plx,plx_err], models = models, av = True, dist_fit = dist_true, rad_prior = rp)
+				nthin=100, w = 'aa', du = False, prior = [*np.zeros(len(pars[0])*2-2),plx,plx_err], models = models, av = True, dist_fit = dist_true, rad_prior = rp)
 		
 		a = np.genfromtxt(dirname + '/samples.txt')
 		dw, ds, de = np.genfromtxt(pardict['filename']).T

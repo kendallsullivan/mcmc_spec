@@ -7,6 +7,7 @@ from glob import glob
 from sklearn.neighbors import KernelDensity
 from scipy.optimize import curve_fit
 from matplotlib import ticker
+from scipy.stats import anderson_ksamp
 
 def max_greenhouse_limit(tstar): 
 	ts = tstar - 5780 
@@ -24,6 +25,7 @@ tstars = np.arange(2700, 7200, 50)
 
 all_koi_table = Table(ascii.read('targets/targets_kep/all_kois.csv'))
 tt = [t.split('i')[1] for t in glob('koi*')]
+
 targets = []
 for t in tt:
 	if len(t) <= 4:
@@ -38,6 +40,7 @@ for t in targets:
 	koi_planets = kois[np.where([int(k) == int(t) for k in kois])]
 	for k in koi_planets:
 		target_planets.append(k)
+
 
 target_table = all_koi_table[np.where([all_koi_table['KOI'] == t for t in target_planets])[1]]
 target_table['Period error'] /= 365.25
@@ -62,7 +65,14 @@ for n in range(len(star_target_params)):
 
 furlan_prcf = Table(ascii.read('Rgap/furlan2017_prcf.tsv'))
 
-prcfs = furlan_prcf[np.where([furlan_prcf['KOI'] == t for t in targets])[1]]
+targets_short = []
+for t in targets:
+	if t[0] == '0':
+		targets_short.append(t[1:])
+	else:
+		targets_short.append(t)
+
+prcfs = furlan_prcf[np.where([furlan_prcf['KOI'] == t for t in targets_short])[1]]
 
 primary_prcfs = prcfs[np.where([prcfs['Orbit'] == 'primary  '])[1]]
 secondary_prcfs = prcfs[np.where([prcfs['Orbit'] == 'companion'])[1]]
@@ -77,31 +87,42 @@ for t in targets:
 		furlan_primary_prcf.append(np.nan)
 		furlan_secondary_prcf.append(np.nan)
 
-furlan_sep = []; sep_table = Table(ascii.read('targets/targets_kep/furlan_sample.tsv'))
+furlan_sep = []; sep_table = Table(ascii.read('targets/targets_kep/furlan_sample.tsv'), masked = True)
 
-for t in targets:
+for k in range(len(sep_table)):
+	sep_table['KOI'][k] = sep_table['KOI'][k].strip()
+
+for t in targets_short:
 	if t in sep_table['KOI']:
 		furlan_sep.append(float(np.array(sep_table['Sep'])[np.where(sep_table['KOI'] == t)][0]))
 	else:
 		furlan_sep.append(np.nan)
 
 #now make the big stellar Kepler properties dictionary
-header = ['system', 'kep_teff', 'kep_teff_err', 'kep_rstar', 'kep_rstar_err', 'kep_mstar', 'kep_pri_prcf', 'kep_sec_prcf', 'separation']
 
 star_table = Table()
 
 star_table['system'] = star_target_params['koi']
 star_table['kep_teff'] = star_target_params['teff']; star_table['kep_teff_err'] = np.max([star_target_params['teff_err2'], star_target_params['teff_err1']], axis = 0)
 star_table['kep_rstar'] = star_target_params['radius']; star_table['kep_rstar_err'] = np.max([star_target_params['radius_err2'], star_target_params['radius_err1']], axis=0)
-star_table['kep_mstar'] = star_target_params['mass']
+star_table['kep_mstar'] = star_target_params['mass']; star_table['distance'] = star_target_params['dist']
 
 star_table['kep_pri_prcf'] = furlan_primary_prcf
 star_table['kep_sec_prcf'] = furlan_secondary_prcf
 star_table['separation'] = furlan_sep
 
-#initialize tables for the derived/revised star and planet properties
+star_table['separation'][np.where(star_table['system']) == '5971'] = 0.043
+star_table['separation'][np.where(star_table['system'] == '7099')] = 0.084
+star_table['separation'][np.where(star_table['system'] == '7716')] = 0.086
+star_table['separation'][np.where(star_table['system'] == '8077')] = 0.070
+
+
+# #initialize tables for the derived/revised star and planet properties
 derived_planet = Table(names = ['pname', 'rp', 'rp_plus', 'rp_minus', 'rs', 'rs_plus', 'rs_minus', 'tp', 'tp_plus', 'tp_minus', 'ts', 'ts_plus', 'ts_minus', 'sp', 'sp_plus', 'sp_minus', 'ss', 'ss_plus', 'ss_minus', 'tstar_index', 'separation'])
 derived_star = Table(names = ['sname', 'pteff', 'pteff_plus', 'pteff_minus', 'steff', 'steff_plus', 'steff_minus', 'prad', 'prad_plus', 'prad_minus', 'srad', 'srad_plus', 'srad_minus', 'p_prcf', 'p_prcf_plus', 'p_prcf_minus', 's_prcf', 's_prcf_plus', 's_prcf_minus', 'mp', 'ms', 'q', 'q_plus', 'q_minus'])
+
+cks = Table(ascii.read('cks_rgap.tsv')[3:], dtype = ['S', 'f', 'S','S','f','S','S','S','S', 'S','S','S'])
+cks = cks[np.where(cks['Samp'] == '1')]
 
 for n, dirname in enumerate(star_table['system']):
 	try:
@@ -160,13 +181,15 @@ for n, dirname in enumerate(star_table['system']):
 			old_planet_radius = np.random.normal(planet_table['radius'][k], planet_table['radius_err'][k], len(pri_prcf))
 
 			new_planet_pradius_posterior = old_planet_radius * pri_prcf * (pri_rad/np.random.normal(star_table['kep_rstar'][n], star_table['kep_rstar_err'][n], len(pri_prcf)))
-			new_planet_sradius_posterior = old_planet_radius * sec_prcf * sec_rad * (pri_rad/np.random.normal(star_table['kep_rstar'][n], star_table['kep_rstar_err'][n], len(pri_prcf)))
+			new_planet_sradius_posterior = old_planet_radius * sec_prcf  * (pri_rad/np.random.normal(star_table['kep_rstar'][n], star_table['kep_rstar_err'][n], len(pri_prcf)))
 
 			new_rp_mean = np.mean(new_planet_pradius_posterior); new_rp_std = np.std(new_planet_pradius_posterior); 
 			new_rp_84 = np.abs(np.nanpercentile(np.array(new_planet_pradius_posterior), 84)); new_rp_16 = np.abs(np.nanpercentile(np.array(new_planet_pradius_posterior),16))
 
 			new_rs_mean = np.mean(new_planet_sradius_posterior); new_rs_std = np.std(new_planet_sradius_posterior); 
 			new_rs_84 = np.abs(np.nanpercentile(np.array(new_planet_sradius_posterior), 84)); new_rs_16 = np.abs(np.nanpercentile(np.array(new_planet_sradius_posterior),16))
+
+			# print(np.mean(pri_prcf), np.mean(sec_prcf), np.mean(old_planet_radius), new_rs_mean, new_rp_mean)
 
 			#calculate the revised teq
 			#equation is teq_new = teq_old * (teff_new/teff_old) * sqrt(radius_new/radius_old)
@@ -196,6 +219,7 @@ for n, dirname in enumerate(star_table['system']):
 			new_sec_sma = (period_draw**2 * sec_mass)**(1/3)
 
 			new_smap_mean = np.mean(new_pri_sma); new_smap_std = np.std(new_pri_sma); 
+
 			new_smap_84 = np.abs(np.nanpercentile(np.array(new_pri_sma), 84)); new_smap_16 = np.abs(np.nanpercentile(np.array(new_pri_sma),16))
 
 			new_smas_mean = np.mean(new_sec_sma); new_smas_std = np.std(new_sec_sma); 
@@ -208,6 +232,7 @@ for n, dirname in enumerate(star_table['system']):
 			new_ps = pri_lum/new_pri_sma**2; new_ss = sec_lum/new_sec_sma**2
 
 			new_smap_mean = np.mean(new_ps); new_smap_std = np.std(new_ps); 
+
 			new_smap_84 = np.abs(np.nanpercentile(np.array(new_ps), 84)); new_smap_16 = np.abs(np.nanpercentile(np.array(new_ps),16))
 
 			new_smas_mean = np.mean(new_ss); new_smas_std = np.std(new_ss); 
@@ -224,6 +249,9 @@ for n, dirname in enumerate(star_table['system']):
 					new_smap_mean, new_smap_84-new_smap_mean, new_smap_mean-new_smap_16, new_smas_mean, new_smas_84-new_smas_mean, new_smas_mean-new_smas_16, planet_table['s'][k], planet_table['s_err'][k]))
 				f.write('\n')
 				f.close()
+
+
+derived_planet = derived_planet[np.where((planet_table['radius'] <= 2) & (planet_table['radius'] >= 0.1))]; planet_table = planet_table[np.where((planet_table['radius'] <= 2) & (planet_table['radius'] >= 0.1))]
 
 print('total number of stars analyzed: ', len(derived_star), ', total number of planets: ', len(derived_planet))
 
@@ -280,6 +308,8 @@ ss_16 = np.nanpercentile((planet_table['s'] - derived_planet['ss'])/planet_table
 
 print('avg primary host planet instellation change (fraction): {:.3f} + {:.3f} - {:.3f}'.format(ps_mean, ps_84 - ps_mean, ps_mean - prad_16))
 print('avg secondary host planet instellation change (fraction): {:.3f} + {:.3f} - {:.3f}'.format(ss_mean, ss_84 - ss_mean, ss_mean - srad_16))
+
+print('Anderson-Darling test between CKS radius dist and binary radius dist: ', anderson_ksamp([cks['Rp'], derived_planet['rp']]))
 
 
 ### NOW PLOT EVERYTHING ###
@@ -360,15 +390,15 @@ plt.savefig('teff_hist.pdf')
 plt.close()
 
 # bins = np.arange(np.log10(0.3), np.log10(7.1), 0.06)
-bins = np.arange(0.35, 6, 0.2)
+bins = np.arange(0.35, 4, 0.14)
 
 fig, [ax1, ax2, ax3] = plt.subplots(nrows = 3, gridspec_kw = dict(hspace = 0), sharex = True, figsize = (7,6))
 a = ax1.hist(planet_table['radius'], color = 'k', linewidth = 2, histtype = 'step', label = r'Kepler $R_{P}$', bins = bins)
 b = ax2.hist(derived_planet['rp'], color = 'darkblue', linewidth = 2, histtype = 'step', hatch = '/', label = r'Primary host $R_{p}$', bins = bins)
 c = ax3.hist(derived_planet['rs'], color = 'darkorange', linewidth = 2, histtype = 'step', hatch = 'x', label = r'Secondary host $R_{p}$', bins = bins)
-d = ax1.axvline(1.9, linewidth = 2, color = 'k', label = r'1.9 $R_{\oplus}$')
-ax2.axvline(1.9, linewidth = 2, color = 'k')
-ax3.axvline(1.9, linewidth = 2, color = 'k')
+d = ax1.axvline(1.8, linewidth = 2, color = 'k', label = r'1.8 $R_{\oplus}$')
+ax2.axvline(1.8, linewidth = 2, color = 'k')
+ax3.axvline(1.8, linewidth = 2, color = 'k')
 
 ax1.legend(loc = 'best', fontsize = 12, framealpha = 0)
 ax2.legend(loc = 'best', fontsize = 12, framealpha = 0)
@@ -410,22 +440,22 @@ plt.close()
 fix, ax = plt.subplots()
 ax.scatter(planet_table['radius'], derived_planet['rp'], marker = '.', s = 100, color = 'darkblue', label = 'Primary host', zorder = 1)
 ax.errorbar(planet_table['radius'], derived_planet['rp'], xerr = planet_table['radius_err'], yerr = [derived_planet['rp_minus'], derived_planet['rp_plus']], linestyle = 'None', color = 'darkblue', zorder = 1, alpha = 0.5, elinewidth = 1)
-ax.axhline(1, label = r'1 R$_{\bigoplus}$', linestyle = '--', color = '0.8', linewidth = 2, zorder = 0)
-ax.axhline(1.8, label = r'1.8 R$_{\bigoplus}$', linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0)
+ax.axhline(1, label = r'1 R$_{\oplus}$', linestyle = '--', color = '0.8', linewidth = 2, zorder = 0)
+ax.axhline(1.8, label = r'1.8 R$_{\oplus}$', linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0)
 ax.axvline(1, linestyle = '--', color = '0.8', linewidth = 2, zorder = 0)
 ax.axvline(1.8, linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0)
 ax.plot([0.3,3], [0.3,3], label = '1:1', linestyle = ':', linewidth = 1.2, color = '0.3', zorder = 0)
 ax.set_xlim(0.3, 3)
 # ax.set_ylim(0.3, 2.5)
-ax.set_yscale('log')
+# ax.set_yscale('log')
 plt.minorticks_on()
 ax.tick_params(which='minor', bottom=True, top =True, left=True, right=True)
 ax.tick_params(bottom=True, top =True, left=True, right=True)
 ax.tick_params(which='both', labelsize = 14, direction='in')
 ax.tick_params('both', length=8, width=1.5, which='major')
 ax.tick_params('both', length=4, width=1, which='minor')
-ax.set_xlabel(r'R$_{p}$ (Kepler; R$_{\bigoplus}$)', fontsize = 14)
-ax.set_ylabel(r'R$_{p}$ (this work; R$_{\bigoplus}$)', fontsize = 14)
+ax.set_xlabel(r'R$_{p}$ (Kepler; R$_{\oplus}$)', fontsize = 14)
+ax.set_ylabel(r'R$_{p}$ (this work; R$_{\oplus}$)', fontsize = 14)
 ax.legend(loc = 'best', fontsize = 12)
 plt.tight_layout()
 plt.savefig('rp_diff_primary.pdf')
@@ -442,11 +472,11 @@ ax.axvspan(3e2, runaway_greenhouse(5870), alpha = 0.1, color = 'xkcd:bright red'
 ax.axvspan(3e2, recent_venus(5870), alpha = 0.1, color = 'xkcd:scarlet', zorder = 0)
 # ax.text(1, 0.5, 'Cons. HZ', fontsize = 10)
 ax.axvspan(0, max_greenhouse_limit(5870), alpha = 0.1, color = 'xkcd:azure', zorder = 0)
-ax.axhline(1, label = r'1 R$_{\bigoplus}$', linestyle = '--', color = '0.8', linewidth = 2, zorder = 0)
-ax.axhline(1.8, label = r'1.8 R$_{\bigoplus}$', linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0)
+ax.axhline(1, label = r'1 R$_{\oplus}$', linestyle = '--', color = '0.8', linewidth = 2, zorder = 0)
+ax.axhline(1.8, label = r'1.8 R$_{\oplus}$', linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0)
 plt.minorticks_on()
 ax.set_xscale('log')
-ax.set_yscale('log')
+# ax.set_yscale('log')
 # ax.set_xlim(3e2, 8e-2)
 plt.gca().invert_xaxis()
 ax.tick_params(which='minor', bottom=True, top =True, left=True, right=True)
@@ -454,8 +484,8 @@ ax.tick_params(bottom=True, top =True, left=True, right=True)
 ax.tick_params(which='both', labelsize = 14, direction='in')
 ax.tick_params('both', length=8, width=1.5, which='major')
 ax.tick_params('both', length=4, width=1, which='minor')
-ax.set_xlabel(r'Instellation (S$_{\bigoplus}$)', fontsize = 14)
-ax.set_ylabel(r'R$_{P} (R_{\bigoplus}$)', fontsize = 14)
+ax.set_xlabel(r'Instellation (S$_{\oplus}$)', fontsize = 14)
+ax.set_ylabel(r'R$_{P} (R_{\oplus}$)', fontsize = 14)
 ax.legend(loc = 'upper left', fontsize = 12)
 plt.tight_layout()
 plt.savefig('s_vs_r_primary.pdf')
@@ -464,6 +494,51 @@ plt.close()
 kde = KernelDensity(kernel='gaussian', bandwidth = 0.2).fit(np.array([np.log10(planet_table['period']*365.25), derived_planet['rp']]).T)
 
 X, Y = np.meshgrid(np.arange(np.log10(1e-2), max(np.log10(planet_table['period']*365.25))+1.5, 0.05), np.arange(min(derived_planet['rp'])-0.5, max(derived_planet['rp'])+1.5, 0.05))
+xy = np.vstack([X.ravel(), Y.ravel()]).T
+Z = np.exp(kde.score_samples(xy))
+Z = Z.reshape(X.shape)
+levels = np.linspace(0, Z.max(), 60)
+
+def line(x):
+	# return 1.71 * (x/10)**-0.06 #0.5-0.7 Msun from petigura et al. 2022 (occurrence space)
+	return 1.74*(x/10)**-0.13 #0.7-1 msun from Petigura et al. 2022 (detection space)
+	# return 10**(-0.08 * np.log10(x) + 0.31) young stars from David et al (or berger?) 2020 or 2021
+
+periods = np.linspace(-0.5, 3, 100)
+periods_days = (10**periods)
+
+fix, ax = plt.subplots()
+ax.scatter(np.log10(planet_table['period']*365.25), derived_planet['rp'], marker = '.', s = 100, color = 'darkblue', label = 'Primary host', zorder = 1, edgecolor = 'k')
+# ax.scatter(planet_table['period']*365.25, planet_table['radius'], marker = '.', s = 100, edgecolor = 'darkblue', facecolors = 'None', label = 'Kepler', zorder = 1)
+ax.errorbar(np.log10(planet_table['period']*365.25), derived_planet['rp'], xerr = planet_table['period_err'], yerr = [derived_planet['rp_minus'], derived_planet['rp_plus']], linestyle = 'None', color = 'darkblue', zorder = 1, alpha = 0.3, elinewidth = 1)
+# ax.errorbar(planet_table['period']*365.25, planet_table['radius'], xerr = planet_table['period_err'], yerr = planet_table['radius_err'], linestyle = 'None', color = 'darkblue', zorder = 1, alpha = 0.3, elinewidth = 1)
+# for n in range(len(derived_planet['rp'])):
+	# ax.annotate("", xy=(planet_table['period'][n]*365.25, derived_planet['rp'][n]), xytext=(planet_table['period'][n]*365.25, planet_table['radius'][n]), arrowprops=dict(arrowstyle="->"))
+a = plt.contourf(X, Y, Z, cmap=plt.cm.Blues, levels=levels, zorder = -99, vmax = 0.38)
+plt.colorbar(a)
+plt.plot(periods, line(periods_days), color = 'k', linewidth = 2, linestyle = '--', label = 'Petigura+2022 (single stars)')
+# ax.axhline(1, label = r'1 R$_{\oplus}$', linestyle = '--', color = '0.8', linewidth = 2, zorder = 0))
+# ax.axhline(1.8, label = r'1.8 R$_{\oplus}$', linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0))
+plt.minorticks_on()
+ax.tick_params(which='minor', bottom=True, top =True, left=True, right=True)
+ax.tick_params(bottom=True, top =True, left=True, right=True)
+ax.tick_params(which='both', labelsize = 14, direction='in')
+ax.tick_params('both', length=8, width=1.5, which='major')
+ax.tick_params('both', length=4, width=1, which='minor')
+ax.set_xlabel(r'log$_{10}$(Period) (days)', fontsize = 14)
+ax.set_ylabel(r'R$_{P} (R_{\oplus}$)', fontsize = 14)
+# ax.set_xscale('log')
+ax.set_yscale('log')
+ax.set_ylim(min(derived_planet['rp']) - 0.05, max(derived_planet['rp']) + 0.5)
+ax.set_xlim(-0.5, 3)
+ax.legend(loc = 'best', fontsize = 12)
+plt.tight_layout()
+plt.savefig('p_vs_r_primary.pdf')
+plt.close()
+
+kde = KernelDensity(kernel='gaussian', bandwidth = 0.2).fit(np.array([np.log10(cks['Per']), cks['Rp']]).T)
+
+X, Y = np.meshgrid(np.arange(np.log10(1e-2), max(np.log10(cks['Per']))+1.5, 0.05), np.arange(min(cks['Rp'])-0.5, max(cks['Rp'])+1.5, 0.05))
 xy = np.vstack([X.ravel(), Y.ravel()]).T
 Z = np.exp(kde.score_samples(xy))
 Z = Z.reshape(X.shape)
@@ -476,16 +551,17 @@ periods = np.linspace(-2, 4, 100)
 periods_days = (10**periods)
 
 fix, ax = plt.subplots()
-ax.scatter(np.log10(planet_table['period']*365.25), derived_planet['rp'], marker = '.', s = 100, color = 'darkblue', label = 'Primary host', zorder = 1)
+ax.scatter(np.log10(planet_table['period']*365.25), derived_planet['rp'], marker = '.', s = 100, color = 'darkblue', label = 'Primary host', zorder = 1, edgecolor = 'k')
 # ax.scatter(planet_table['period']*365.25, planet_table['radius'], marker = '.', s = 100, edgecolor = 'darkblue', facecolors = 'None', label = 'Kepler', zorder = 1)
 ax.errorbar(np.log10(planet_table['period']*365.25), derived_planet['rp'], xerr = planet_table['period_err'], yerr = [derived_planet['rp_minus'], derived_planet['rp_plus']], linestyle = 'None', color = 'darkblue', zorder = 1, alpha = 0.3, elinewidth = 1)
 # ax.errorbar(planet_table['period']*365.25, planet_table['radius'], xerr = planet_table['period_err'], yerr = planet_table['radius_err'], linestyle = 'None', color = 'darkblue', zorder = 1, alpha = 0.3, elinewidth = 1)
 # for n in range(len(derived_planet['rp'])):
 	# ax.annotate("", xy=(planet_table['period'][n]*365.25, derived_planet['rp'][n]), xytext=(planet_table['period'][n]*365.25, planet_table['radius'][n]), arrowprops=dict(arrowstyle="->"))
-plt.contourf(X, Y, Z, cmap=plt.cm.Blues, levels=levels, zorder = -99)
+a = plt.contourf(X, Y, Z, cmap=plt.cm.Oranges, levels=levels, zorder = -99, vmax = 0.42)
+plt.colorbar(a)
 plt.plot(periods, line(periods_days), color = 'k', linewidth = 2, linestyle = '--', label = 'Petigura+2022 (single stars)')
-# ax.axhline(1, label = r'1 R$_{\bigoplus}$', linestyle = '--', color = '0.8', linewidth = 2, zorder = 0))
-# ax.axhline(1.8, label = r'1.8 R$_{\bigoplus}$', linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0))
+# ax.axhline(1, label = r'1 R$_{\oplus}$', linestyle = '--', color = '0.8', linewidth = 2, zorder = 0))
+# ax.axhline(1.8, label = r'1.8 R$_{\oplus}$', linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0))
 plt.minorticks_on()
 ax.tick_params(which='minor', bottom=True, top =True, left=True, right=True)
 ax.tick_params(bottom=True, top =True, left=True, right=True)
@@ -493,42 +569,87 @@ ax.tick_params(which='both', labelsize = 14, direction='in')
 ax.tick_params('both', length=8, width=1.5, which='major')
 ax.tick_params('both', length=4, width=1, which='minor')
 ax.set_xlabel(r'log$_{10}$(Period) (days)', fontsize = 14)
-ax.set_ylabel(r'log$_{10}$(R$_{P}) (R_{\bigoplus}$)', fontsize = 14)
+ax.set_ylabel(r'R$_{P} (R_{\oplus}$)', fontsize = 14)
 # ax.set_xscale('log')
 ax.set_yscale('log')
 ax.set_ylim(min(derived_planet['rp']) - 0.05, max(derived_planet['rp']) + 0.5)
 ax.set_xlim(min(np.log10(planet_table['period'] * 365.25)) - 1, max(np.log10(planet_table['period'] * 365.25)) + 1)
 ax.legend(loc = 'best', fontsize = 12)
 plt.tight_layout()
-plt.savefig('p_vs_r_primary.pdf')
+plt.savefig('p_vs_r_primary_CKS.pdf')
 plt.close()
 
-def line(x, m, b):
-	return m*x + b
 
-popt, pcov = curve_fit(line, derived_planet['separation'][~np.isnan(derived_planet['separation'])], derived_planet['rp'][~np.isnan(derived_planet['separation'])], sigma = [max(a, b) for a,b in zip(derived_planet['rp_plus'][~np.isnan(derived_planet['separation'])], derived_planet['rp_minus'][~np.isnan(derived_planet['separation'])])])
-x_arr = np.arange(np.nanmin(derived_planet['separation']), np.nanmax(derived_planet['separation']), 0.02)
+kde = KernelDensity(kernel='gaussian', bandwidth = 0.2).fit(np.array([np.log10(planet_table['period']*365.25), planet_table['radius']]).T)
+
+X, Y = np.meshgrid(np.arange(np.log10(1e-2), max(np.log10(planet_table['period']*365.25))+1.5, 0.05), np.arange(min(planet_table['radius'])-0.5, max(planet_table['radius'])+2.5, 0.05))
+xy = np.vstack([X.ravel(), Y.ravel()]).T
+Z = np.exp(kde.score_samples(xy))
+Z = Z.reshape(X.shape)
+levels = np.linspace(0, Z.max(), 40)
+
+def line(x):
+	return 1.74*(x/10)**-0.13
+
+periods = np.linspace(-2, 4, 100)
+periods_days = (10**periods)
 
 fix, ax = plt.subplots()
-ax.scatter(derived_planet['separation'], derived_planet['rp'], marker = '.', s = 100, color = 'darkblue', label = 'Primary host', zorder = 1)
-ax.errorbar(derived_planet['separation'], derived_planet['rp'], yerr = [derived_planet['rp_minus'], derived_planet['rp_plus']], linestyle = 'None', color = 'darkblue', zorder = 1, alpha = 0.3, elinewidth = 1)
-ax.plot(x_arr, line(x_arr, *popt), linewidth = 2, color = 'k', label = 'best-fit line')
-ax.axhline(1, label = r'1 R$_{\bigoplus}$', linestyle = '--', color = '0.8', linewidth = 2, zorder = 0)
-ax.axhline(1.8, label = r'1.8 R$_{\bigoplus}$', linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0)
+ax.scatter(np.log10(planet_table['period']*365.25), derived_planet['rp'], marker = '.', s = 100, color = 'darkblue', label = 'Primary host', zorder = 1, edgecolor = 'k')
+# ax.scatter(planet_table['period']*365.25, planet_table['radius'], marker = '.', s = 100, edgecolor = 'darkblue', facecolors = 'None', label = 'Kepler', zorder = 1)
+ax.errorbar(np.log10(planet_table['period']*365.25), derived_planet['rp'], xerr = planet_table['period_err'], yerr = [derived_planet['rp_minus'], derived_planet['rp_plus']], linestyle = 'None', color = 'darkblue', zorder = 1, alpha = 0.3, elinewidth = 1)
+# ax.errorbar(planet_table['period']*365.25, planet_table['radius'], xerr = planet_table['period_err'], yerr = planet_table['radius_err'], linestyle = 'None', color = 'darkblue', zorder = 1, alpha = 0.3, elinewidth = 1)
+# for n in range(len(derived_planet['rp'])):
+	# ax.annotate("", xy=(planet_table['period'][n]*365.25, derived_planet['rp'][n]), xytext=(planet_table['period'][n]*365.25, planet_table['radius'][n]), arrowprops=dict(arrowstyle="->"))
+a = plt.contourf(X, Y, Z, cmap=plt.cm.Oranges, levels=levels, zorder = -99, vmax = 0.42)
+plt.colorbar(a)
+plt.plot(periods, line(periods_days), color = 'k', linewidth = 2, linestyle = '--', label = 'Petigura+2022 (single stars)')
+# ax.axhline(1, label = r'1 R$_{\oplus}$', linestyle = '--', color = '0.8', linewidth = 2, zorder = 0))
+# ax.axhline(1.8, label = r'1.8 R$_{\oplus}$', linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0))
 plt.minorticks_on()
 ax.tick_params(which='minor', bottom=True, top =True, left=True, right=True)
 ax.tick_params(bottom=True, top =True, left=True, right=True)
 ax.tick_params(which='both', labelsize = 14, direction='in')
 ax.tick_params('both', length=8, width=1.5, which='major')
 ax.tick_params('both', length=4, width=1, which='minor')
-ax.set_xlabel(r'$\rho$ (arcsec)', fontsize = 14)
-ax.set_ylabel(r'R$_{P} (R_{\bigoplus}$)', fontsize = 14)
+ax.set_xlabel(r'log$_{10}$(Period) (days)', fontsize = 14)
+ax.set_ylabel(r'R$_{P} (R_{\oplus}$)', fontsize = 14)
 # ax.set_xscale('log')
 ax.set_yscale('log')
+ax.set_ylim(min(derived_planet['rp']) - 0.05, max(derived_planet['rp']) + 1)
+ax.set_xlim(min(np.log10(planet_table['period'] * 365.25)) - 1, max(np.log10(planet_table['period'] * 365.25)) + 1)
+ax.legend(loc = 'best', fontsize = 12)
+plt.tight_layout()
+plt.savefig('p_vs_r_primary_before_after.pdf')
+plt.close()
+
+
+def line(x, m, b):
+	return m*x + b
+
+# popt, pcov = curve_fit(line, derived_planet['separation'][~np.isnan(derived_planet['separation'])]*[float(star_table['distance'][int(k)]) for k in planet_table['tstar_index']][~np.isnan(derived_planet['separation'])], derived_planet['rp'][~np.isnan(derived_planet['separation'])], sigma = [max(a, b) for a,b in zip(derived_planet['rp_plus'][~np.isnan(derived_planet['separation'])], derived_planet['rp_minus'][~np.isnan(derived_planet['separation'])])])
+# x_arr = np.arange(np.nanmin(derived_planet['separation'])*[float(star_table['distance'][int(k)]) for k in planet_table['tstar_index']][~np.isnan(derived_planet['separation'])], np.nanmax(derived_planet['separation'])*[star_table['distance'][int(k)] for k in planet_table['tstar_index']][~np.isnan(derived_planet['separation'])], 0.02)
+
+fix, ax = plt.subplots()
+ax.scatter(derived_planet['separation']*[float(star_table['distance'][int(k)]) for k in planet_table['tstar_index']], derived_planet['rp'], marker = '.', s = 100, color = 'darkblue', label = 'Primary host', zorder = 1)
+ax.errorbar(derived_planet['separation']*[float(star_table['distance'][int(k)]) for k in planet_table['tstar_index']], derived_planet['rp'], yerr = [derived_planet['rp_minus'], derived_planet['rp_plus']], linestyle = 'None', color = 'darkblue', zorder = 1, alpha = 0.3, elinewidth = 1)
+# ax.plot(x_arr, line(x_arr, *popt), linewidth = 2, color = 'k', label = 'best-fit line')
+# ax.axhline(1, label = r'1 R$_{\oplus}$', linestyle = '--', color = '0.8', linewidth = 2, zorder = 0)
+# ax.axhline(1.8, label = r'1.8 R$_{\oplus}$', linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0)
+plt.minorticks_on()
+ax.tick_params(which='minor', bottom=True, top =True, left=True, right=True)
+ax.tick_params(bottom=True, top =True, left=True, right=True)
+ax.tick_params(which='both', labelsize = 14, direction='in')
+ax.tick_params('both', length=8, width=1.5, which='major')
+ax.tick_params('both', length=4, width=1, which='minor')
+ax.set_xlabel(r'Approx. separation (AU)', fontsize = 14)
+ax.set_ylabel(r'R$_{P} (R_{\oplus}$)', fontsize = 14)
+ax.set_xscale('log')
+# ax.set_yscale('log')
 ax.set_ylim(min(derived_planet['rp']) - 0.05, max(derived_planet['rp']) + 0.5)
 ax.legend(loc = 'upper left', fontsize = 12)
 plt.tight_layout()
-plt.savefig('rho_vs_r_primary.pdf')
+plt.savefig('a_vs_r_primary.pdf')
 plt.close()
 
 fix, ax = plt.subplots()
@@ -549,7 +670,7 @@ ax.tick_params(bottom=True, top =True, left=True, right=True)
 ax.tick_params(which='both', labelsize = 14, direction='in')
 ax.tick_params('both', length=8, width=1.5, which='major')
 ax.tick_params('both', length=4, width=1, which='minor')
-ax.set_xlabel(r'Instellation (S$_{\bigoplus}$)', fontsize = 14)
+ax.set_xlabel(r'Instellation (S$_{\oplus}$)', fontsize = 14)
 ax.set_ylabel(r'T$_{\star}$ (K)', fontsize = 14)
 ax.legend(loc = 'upper left', fontsize = 12, ncol = 2)
 plt.tight_layout()
@@ -557,21 +678,29 @@ plt.savefig('s_vs_t_primary.pdf')
 plt.close()
 
 fix, ax = plt.subplots()
-ax.scatter([derived_star['q'][int(k)] for k in planet_table['tstar_index']], derived_planet['rp'], marker = '.', s = 100, color = 'darkblue', label = 'Primary host', zorder = 1)
-ax.errorbar([derived_star['q'][int(k)] for k in planet_table['tstar_index']], derived_planet['rp'], xerr = [[derived_star['q_minus'][int(k)] for k in planet_table['tstar_index']], [derived_star['q_plus'][int(k)] for k in planet_table['tstar_index']]], yerr = [derived_planet['rp_minus'], derived_planet['rp_plus']], linestyle = 'None', color = 'darkblue', zorder = 1, alpha = 0.5, elinewidth = 1)
+ax.scatter(np.array([derived_star['mp'][int(k)] for k in planet_table['tstar_index']]), derived_planet['rp'], marker = '.', s = 100, color = 'darkblue', label = 'Primary host', zorder = 1)
+ax.errorbar(np.array([derived_star['mp'][int(k)] for k in planet_table['tstar_index']]), derived_planet['rp'], xerr = [[derived_star['q_minus'][int(k)] for k in planet_table['tstar_index']], [derived_star['q_plus'][int(k)] for k in planet_table['tstar_index']]], yerr = [derived_planet['rp_minus'], derived_planet['rp_plus']], linestyle = 'None', color = 'darkblue', zorder = 1, alpha = 0.5, elinewidth = 1)
+def line(x, m, b):
+	return m*x + b
+
+# popt, pcov = curve_fit(line, [derived_star['ms'][int(k)] for k in planet_table['tstar_index']], derived_planet['rp'], sigma = [max(a, b) for a,b in zip(derived_planet['rp_plus'], derived_planet['rp_minus'])])
+# x_arr = np.arange(np.nanmin([derived_star['ms'][int(k)] for k in planet_table['tstar_index']]), np.nanmax([derived_star['ms'][int(k)] for k in planet_table['tstar_index']]), 0.02)
+
+# ax.plot(x_arr, line(x_arr, *popt), linewidth = 2, color = 'k', label = 'best-fit line')
+
 plt.minorticks_on()
 ax.set_yscale('log')
-ax.set_xlim(0.25, 1)
+# ax.set_xlim(0.25, 1)
 ax.tick_params(which='minor', bottom=True, top =True, left=True, right=True)
 ax.tick_params(bottom=True, top =True, left=True, right=True)
 ax.tick_params(which='both', labelsize = 14, direction='in')
 ax.tick_params('both', length=8, width=1.5, which='major')
 ax.tick_params('both', length=4, width=1, which='minor')
-ax.set_xlabel(r'Binary mass ratio q', fontsize = 14)
+ax.set_xlabel(r'Primary star mass ($M_{\odot}$)', fontsize = 14)
 ax.set_ylabel(r'$R_{p} (R_{\oplus})$', fontsize = 14)
 ax.legend(loc = 'best', fontsize = 12, ncol = 2)
 plt.tight_layout()
-plt.savefig('q_vs_r_primary.pdf')
+plt.savefig('m1_vs_r_primary.pdf')
 plt.close()
 
 
@@ -580,22 +709,22 @@ plt.close()
 fix, ax = plt.subplots()
 ax.scatter(planet_table['radius'], derived_planet['rs'], marker = '.', s = 100, color = 'darkorange', label = 'Secondary host', zorder = 1)
 ax.errorbar(planet_table['radius'], derived_planet['rs'], xerr = planet_table['radius_err'], yerr = [derived_planet['rs_minus'], derived_planet['rs_plus']], linestyle = 'None', color = 'darkorange', zorder = 1, alpha = 0.5, elinewidth = 1)
-ax.axhline(1, label = r'1 R$_{\bigoplus}$', linestyle = '--', color = '0.8', linewidth = 2, zorder = 0)
-ax.axhline(1.8, label = r'1.8 R$_{\bigoplus}$', linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0)
+ax.axhline(1, label = r'1 R$_{\oplus}$', linestyle = '--', color = '0.8', linewidth = 2, zorder = 0)
+ax.axhline(1.8, label = r'1.8 R$_{\oplus}$', linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0)
 ax.axvline(1, linestyle = '--', color = '0.8', linewidth = 2, zorder = 0)
 ax.axvline(1.8, linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0)
 ax.plot([0.3,3], [0.3,3], label = '1:1', linestyle = ':', linewidth = 1.2, color = '0.3', zorder = 0)
 ax.set_xlim(0.3, 3)
 # ax.set_ylim(0.3, 7.5)
-ax.set_yscale('log')
+# ax.set_yscale('log')
 plt.minorticks_on()
 ax.tick_params(which='minor', bottom=True, top =True, left=True, right=True)
 ax.tick_params(bottom=True, top =True, left=True, right=True)
 ax.tick_params(which='both', labelsize = 14, direction='in')
 ax.tick_params('both', length=8, width=1.5, which='major')
 ax.tick_params('both', length=4, width=1, which='minor')
-ax.set_xlabel(r'R$_{p}$ (Kepler; R$_{\bigoplus}$)', fontsize = 14)
-ax.set_ylabel(r'R$_{p}$ (this work; R$_{\bigoplus}$)', fontsize = 14)
+ax.set_xlabel(r'R$_{p}$ (Kepler; R$_{\oplus}$)', fontsize = 14)
+ax.set_ylabel(r'R$_{p}$ (this work; R$_{\oplus}$)', fontsize = 14)
 ax.legend(loc = 'best', fontsize = 12)
 plt.tight_layout()
 plt.savefig('rp_diff_secondary.pdf')
@@ -612,20 +741,20 @@ ax.axvspan(3e2, runaway_greenhouse(5870), alpha = 0.1, color = 'xkcd:bright red'
 ax.axvspan(3e2, recent_venus(5870), alpha = 0.1, color = 'xkcd:scarlet', zorder = 0)
 # ax.text(1, 0.5, 'Cons. HZ', fontsize = 10)
 ax.axvspan(0, max_greenhouse_limit(5870), alpha = 0.1, color = 'xkcd:azure', zorder = 0)
-ax.axhline(1, label = r'1 R$_{\bigoplus}$', linestyle = '--', color = '0.8', linewidth = 2, zorder = 0)
-ax.axhline(1.8, label = r'1.8 R$_{\bigoplus}$', linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0)
+ax.axhline(1, label = r'1 R$_{\oplus}$', linestyle = '--', color = '0.8', linewidth = 2, zorder = 0)
+ax.axhline(1.8, label = r'1.8 R$_{\oplus}$', linestyle = '-.', color = '0.5', linewidth = 2, zorder = 0)
 plt.minorticks_on()
 ax.set_xscale('log')
 ax.set_xlim(3e2, 8e-2)
-ax.set_yscale('log')
+# ax.set_yscale('log')
 # plt.gca().invert_xaxis()
 ax.tick_params(which='minor', bottom=True, top =True, left=True, right=True)
 ax.tick_params(bottom=True, top =True, left=True, right=True)
 ax.tick_params(which='both', labelsize = 14, direction='in')
 ax.tick_params('both', length=8, width=1.5, which='major')
 ax.tick_params('both', length=4, width=1, which='minor')
-ax.set_xlabel(r'Instellation (S$_{\bigoplus}$)', fontsize = 14)
-ax.set_ylabel(r'R$_{P} (R_{\bigoplus}$)', fontsize = 14)
+ax.set_xlabel(r'Instellation (S$_{\oplus}$)', fontsize = 14)
+ax.set_ylabel(r'R$_{P} (R_{\oplus}$)', fontsize = 14)
 ax.legend(loc = 'upper left', fontsize = 12)
 plt.tight_layout()
 plt.savefig('s_vs_r_secondary.pdf')
@@ -650,9 +779,60 @@ ax.tick_params(bottom=True, top =True, left=True, right=True)
 ax.tick_params(which='both', labelsize = 14, direction='in')
 ax.tick_params('both', length=8, width=1.5, which='major')
 ax.tick_params('both', length=4, width=1, which='minor')
-ax.set_xlabel(r'Instellation (S$_{\bigoplus}$)', fontsize = 14)
+ax.set_xlabel(r'Instellation (S$_{\oplus}$)', fontsize = 14)
 ax.set_ylabel(r'T$_{\star}$ (K)', fontsize = 14)
 ax.legend(loc = 'upper left', fontsize = 12, ncol = 2)
 plt.tight_layout()
 plt.savefig('s_vs_t_secondary.pdf')
 plt.close()
+
+
+######
+#MAKE GIANT TABLE OF OBSERVATIONS
+######
+
+contrast_keys = ['sdss,i',  'e_sdssi', 'lp600', 'e_lp600', 'gaia,g', 'e_gaiag', '562', 'e_562', '692', 'e_692', '880', 'e_880', 'j',  'e_j', 'h',  'e_h', 'kp',  'e_kp']
+
+table_keys = ['KOI', 'sep', 'obsdate', 'snr', *contrast_keys]
+
+giant_table = Table(names = table_keys, dtype = ('S', 'f', 'S', 'f', 'f', 'f', 'f', 'f', 'f', 'f', 'f', 'f', 'f', 'f', 'f', 'f', 'f', 'f', 'f', 'f', 'f', 'f'))
+
+spec_files = glob('HET_data/UT21-2-011/KOI*') + glob('HET_data/UT21-3-008/KOI*') + glob('HET_data/UT22-2-003/KOI*') + glob('HET_data/UT22-3-016/KOI*')
+koi_spec = np.array([f.split('-')[-1].split('_')[0] for f in spec_files])
+koi_date = np.array([f.split('-')[-1].split('_')[1] for f in spec_files])
+
+for t in targets:
+	p = glob('param_koi{}.txt'.format(t))[0] 
+	target = p.split('i')[1].split('_')[0].split('.')[0]
+
+	pardict = {}
+	with open(p) as fi:
+		for line in fi:
+			if not line.startswith('#') and not line.strip() == '':
+				# print(line.split(' ')[0:2])
+				(key, val) = line.split(' ')[0:2]
+				val = val.split('\t')[0]
+				# print(key, val)
+				pardict[str(key)] = val
+	data_wl, dsp, de = np.genfromtxt(pardict['filename']).T
+
+	snr = int(np.median(dsp)/np.std(de))
+
+	mags = list([float(p) for p in pardict['cmag'].strip('[]').split(',')])
+	me = list([float(p) for p in pardict['cerr'].strip('[]').split(',')])
+	filts = np.array([p.strip('\\') for p in pardict['cfilt'].strip('[] ').split('\'')])
+	filts = np.array([p for p in filts if len(p) >= 1 and not p == ','])
+
+	contrast_array = np.empty(len(contrast_keys))
+	contrast_array[:] = -99
+
+	for k, f in enumerate(filts):
+		for n, key in enumerate(contrast_keys):
+			if f.lower().strip() == key.strip():
+				contrast_array[n] = mags[k]; contrast_array[n+1] = me[k]
+
+	giant_table.add_row([target, star_table['separation'][np.where(star_table['system'] == target)], koi_date[np.where(koi_spec == target)[:8]], snr, *contrast_array])
+
+ascii.write(giant_table, 'obs.txt', overwrite=True, format = 'latex')
+
+ascii.write(giant_table[['KOI', 'sep', 'obsdate', 'snr', 'sdss,i', 'lp600', 'gaia,g', '562', '692', '880', 'j', 'h', 'kp']], 'obs_noerr.txt', overwrite = True, format = 'latex')
