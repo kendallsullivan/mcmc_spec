@@ -1458,47 +1458,47 @@ def run_emcee(dirname, fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndu
 	#just take the extrema of the range of entry values to be the upper and lower limits for the values allowed by the prior
 	tmin, tmax = min(t), max(t)
 
-	# count = mp.cpu_count()
-	# with mp.Pool(processes = 15) as pool:
-	# 	sampler = emcee.EnsembleSampler(nwalkers, ndim, logposterior, threads=nwalkers, args=[fr, nspec, ndust, data, err, broadening, r, specs, ctm, ptm, tmi, tma, vs, tmin, tmax, matrix, ra, dec], \
-	# 	kwargs={'dust': du, 'norm':no, 'prior':prior, 'a':av, 'models':models, 'dist_fit':dist_fit, 'rad_prior':rad_prior})
+	count = mp.cpu_count()
+	with mp.Pool(processes = 15) as pool:
+		sampler = emcee.EnsembleSampler(nwalkers, ndim, logposterior, threads=nwalkers, args=[fr, nspec, ndust, data, err, broadening, r, specs, ctm, ptm, tmi, tma, vs, tmin, tmax, matrix, ra, dec], \
+		kwargs={'dust': du, 'norm':no, 'prior':prior, 'a':av, 'models':models, 'dist_fit':dist_fit, 'rad_prior':rad_prior})
 
-	# 	for n, s in enumerate(sampler.sample(pos, iterations = nburn)):
-	# 		if n % nthin == 0:
-	# 			with open('{}/{}_{}_burnin.txt'.format(dirname,fname, n), 'ab') as f:
-	# 				f.write(b"\n")
-	# 				np.savetxt(f, s.coords)
-	# 				f.close() 
+		for n, s in enumerate(sampler.sample(pos, iterations = nburn)):
+			if n % nthin == 0:
+				with open('{}/{}_{}_burnin.txt'.format(dirname,fname, n), 'ab') as f:
+					f.write(b"\n")
+					np.savetxt(f, s.coords)
+					f.close() 
 
-	# 	state = sampler.get_last_sample()
-	# 	sampler.reset()
+		state = sampler.get_last_sample()
+		sampler.reset()
 
-	# 	old_acl = np.inf
-	# 	for n, s in enumerate(sampler.sample(state, iterations = nsteps)):
-	# 		if n % nthin == 0:
-	# 			with open('{}/{}_{}_results.txt'.format(dirname,fname, n), 'ab') as f:
-	# 				f.write(b'\n')
-	# 				np.savetxt(f, s.coords)
-	# 				f.close()
+		old_acl = np.inf
+		for n, s in enumerate(sampler.sample(state, iterations = nsteps)):
+			if n % nthin == 0:
+				with open('{}/{}_{}_results.txt'.format(dirname,fname, n), 'ab') as f:
+					f.write(b'\n')
+					np.savetxt(f, s.coords)
+					f.close()
 					
-	# 			acl = sampler.get_autocorr_time(quiet = True)
-	# 			macl = np.mean(acl)
+				acl = sampler.get_autocorr_time(quiet = True)
+				macl = np.mean(acl)
 
-	# 			with open('{}/{}_autocorr.txt'.format(dirname,fname), 'a') as f:
-	# 				f.write(str(macl) + '\n')
+				with open('{}/{}_autocorr.txt'.format(dirname,fname), 'a') as f:
+					f.write(str(macl) + '\n')
 			
-	# 			if not np.isnan(macl):
-	# 				converged = np.all(acl * 50 < n)
-	# 				converged &= np.all((np.abs(old_acl - acl) / acl) < 0.1)
-	# 				if converged == True:
-	# 					break
+				if not np.isnan(macl):
+					converged = np.all(acl * 50 < n)
+					converged &= np.all((np.abs(old_acl - acl) / acl) < 0.1)
+					if converged == True:
+						break
 
-	# 			old_acl = acl
-	# 	print("Mean acceptance fraction: {0:.3f}".format(np.mean(sampler.acceptance_fraction)))
+				old_acl = acl
+		print("Mean acceptance fraction: {0:.3f}".format(np.mean(sampler.acceptance_fraction)))
 
-	# 	samples = sampler.chain[:, :, :].reshape((-1, ndim))
+		samples = sampler.chain[:, :, :].reshape((-1, ndim))
 
-	# 	np.savetxt(os.getcwd() + '/{}/samples.txt'.format(dirname), samples)
+		np.savetxt(os.getcwd() + '/{}/samples.txt'.format(dirname), samples)
 
 	samples = np.genfromtxt(os.getcwd()+'/{}/samples.txt'.format(dirname))
 
