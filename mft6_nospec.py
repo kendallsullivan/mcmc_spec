@@ -202,7 +202,9 @@ def interp_2_spec(spec1, spec2, ep1, ep2, val):
 		#go through the spectra
 		#the new value is the first gridpoint plus the difference between them weighted by the spacing between the two gridpoints and the desired value.
 		#this is a simple linear interpolation at each wavelength point
-		return ((np.array(spec2) - np.array(spec1))/(ep2 - ep1)) * (val - ep1) + np.array(spec1)
+		ret_arr = ((np.array(spec2) - np.array(spec1))/(ep2 - ep1)) * (val - ep1) + np.array(spec1)
+		#return the new interpolated flux array
+		return ret_arr
 
 	#otherwise yell at me because i'm trying to interpolate things that don't have the same length
 	else:
@@ -688,7 +690,7 @@ def make_composite(teff, logg, rad, distance, contrast_filt, phot_filt, r, specs
 	#convert spectrum to a recieved flux at earth surface: multiply by surface area (4pi r^2) to get the luminosity, then divide by distance (4pi d^2) to get flux
 	if not type(distance) == bool: #if we're fitting for distance convert to a flux
 		di = 1/distance
-		pri_spec *= (rad[0]*(6.957e+10)/(di * 3.086e18))**2
+		pri_spec *= (rad[0]*6.957e+10/(di * 3.086e18))**2
 
 	#now we need to get the secondary (and possibly higher-order multiple) spectra
 	#given the way the spectral retrieval code works, as long as the wavelength range is the same the spectra will be on the same grid
@@ -697,7 +699,7 @@ def make_composite(teff, logg, rad, distance, contrast_filt, phot_filt, r, specs
 		sec_wl, sec_spec = get_spec(teff[n], logg[n], [min(min(r), tmi/1e4, wlmin/1e4) - 1e-4, max(max(r), tma/1e4, wlmax/1e4) + 1e-4], specs, normalize = False, resolution = res, npix = npix, models = models)
 		if not type(distance) == bool: #if fitting for distance convert to flux
 			di = 1/distance
-			sec_spec = sec_spec * (rad[0]*rad[n]*(6.957e+10)/(di * 3.086e18))**2 
+			sec_spec = sec_spec * (rad[0]*rad[n]*6.957e+10/(di * 3.086e18))**2 
 		else: #otherwise need to alter the flux based on the radius ratio
 			#we've set the primary radius to 1, so this radius is just the square of the radius ratio in cm
 			sec_spec = sec_spec * rad[n-1]**2
@@ -784,7 +786,6 @@ def make_composite(teff, logg, rad, distance, contrast_filt, phot_filt, r, specs
 
 	#if I'm calling this during the plot function, I also want to get the kepler photometry for each component
 	if plot == True:
-		#so get the kep tm curve
 		ran, tm, a, b = get_transmission('kepler', res)
 		gaia_ran, gaia_tm, gaia_a, gaia_b = get_transmission('gaia,g', res)
 
@@ -881,16 +882,16 @@ def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_
 	init_phot = -2.5*np.log10(extinct(phot_cwl, 10**(-0.4*phot), extinct_guess))
 
 	#interpolate the model onto the data wavelength vector
-	intep = interp1d(wave1, init_cspec)
-	init_cspec = intep(wl)
+	# intep = interp1d(wave1, init_cspec)
+	# init_cspec = intep(wl)
 
 	#normalize the model to match the median of the data
-	init_cspec*=np.median(flux)/np.median(init_cspec)
-	flux = norm_spec(wl, init_cspec, flux) 
+	# init_cspec*=np.median(flux)/np.median(init_cspec)
+	# flux = norm_spec(wl, init_cspec, flux) 
 
 	#calculate the chi square value of the spectrum fit
-	ic = chisq(init_cspec, flux, err)
-	iic = np.sum(ic)/len(ic)*3
+	# ic = chisq(init_cspec, flux, err)
+	# iic = np.sum(ic)/len(ic)*3
 
 	#calculate the chi square for the contrast fit
 	chi_contrast = chisq(contrast, fr_guess[0], fr_guess[1])
@@ -901,10 +902,10 @@ def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_
 		ip = chisq(phot, fr_guess[3], fr_guess[4])
 		iphot = np.sum(ip)
 		# print(iic, icontrast, iphot)
-		init_cs = np.sum((iic*(len(chi_contrast) + len(ip)), icontrast, iphot))
+		init_cs = np.sum((icontrast, iphot))
 	#otherwise calculate the total chi square as the sum of the contrast and the spectrum chi squares after weighting the spectrum chi^2 appropriately
 	else:
-		init_cs = np.sum((iic*len(chi_contrast), icontrast))
+		init_cs = np.sum((icontrast))
 	#if the distance is from Gaia, impose a distance prior
 	if not type(distance) == bool and dist_fit == True:
 		init_cs += opt_prior([dist], [pprior], [psig])
@@ -1000,19 +1001,19 @@ def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_
 
 				#extinct the spectrum and photometry
 				if var_par[1] > 0:
-					test_cspec = extinct(test_wave1, test_cspec, var_par[1])
+					# test_cspec = extinct(test_wave1, test_cspec, var_par[1])
 					test_phot = -2.5*np.log10(extinct(test_phot_cwl, 10**(-0.4*test_phot), var_par[1]))
 
 				#interpolate the test spectrum onto the data wavelength vector
-				intep = interp1d(test_wave1, test_cspec)
-				test_cspec = intep(wl)
+				# intep = interp1d(test_wave1, test_cspec)
+				# test_cspec = intep(wl)
 
 				#normalize the test spectrum to match the data normalization
-				test_cspec*=np.median(flux)/np.median(test_cspec)
+				# test_cspec*=np.median(flux)/np.median(test_cspec)
 
 				#calculate the reduced chi square between data spectrum and guess spectrum 
-				tc = chisq(test_cspec, flux, err)
-				ttc = np.sum(tc)/len(tc) * 3
+				# tc = chisq(test_cspec, flux, err)
+				# ttc = np.sum(tc)/len(tc) * 3
 
 				#calculate the contrast chi square
 				chi_contrast = chisq(test_contrast, fr_guess[0], fr_guess[1])
@@ -1025,7 +1026,7 @@ def fit_spec(n_walkers, dirname, wl, flux, err, reg, t_guess, av, rad_guess, fr_
 				# print(ttc, tcontrast, tphot, len(tc))
 
 				#create the total chi square by summing the chi^2 after weighting the spectrum chi^2 appropriately
-				test_cs = np.sum((ttc*(len(chi_contrast) + len(chi_phot)), tcontrast, tphot))
+				test_cs = np.sum((tcontrast, tphot))
 
 				test_cs += opt_prior(var_par[1], [av_guess_mu], [av_guess_sig])
 				# print(1/var_par[4], var_par[2], av_guess_mu, av_guess_sig, opt_prior(var_par[2], [av_guess_mu], [av_guess_sig]), tcontrast, tphot, ttc*(len(chi_contrast) + len(chi_phot)))
@@ -1159,24 +1160,24 @@ def loglikelihood(p0, fr, nspec, ndust, data, err, broadening, r, specs, ctm, pt
 
 	#if the extinction value is True extinct the spectrum and photometry using the guess value
 	if av == True and extinct_guess > 0:
-		init_cspec = extinct(wave1, init_cspec, extinct_guess)
+		# init_cspec = extinct(wave1, init_cspec, extinct_guess)
 		init_phot = -2.5*np.log10(extinct(phot_cwl, 10**(-0.4*phot), extinct_guess))
 	#otherwise just transfer the photometry to another variable for consistency and proceed without extincting anything
 	else:
 		init_phot = phot
 
 	#interpolate the model onto the date wavelength scale
-	intep = interp1d(wave1, init_cspec)
-	init_cspec = intep(wl * 1e4)
+	# intep = interp1d(wave1, init_cspec)
+	# init_cspec = intep(wl * 1e4)
 
 	#normalize the model
-	init_cspec *= np.median(spec)/np.median(init_cspec)
-	spec = norm_spec(wl, init_cspec, spec) 
+	# init_cspec *= np.median(spec)/np.median(init_cspec)
+	# spec = norm_spec(wl, init_cspec, spec) 
 
 
 	#calculate the chi square value of that fit
-	ic = chisq(init_cspec, spec, err)
-	iic = np.sum(ic)/len(ic)
+	# ic = chisq(init_cspec, spec, err)
+	# iic = np.sum(ic)/len(ic)
 
 	#calculate the chi square for the contrast fit
 	chi_contrast = chisq(contrast, fr[0], fr[1])
@@ -1188,11 +1189,11 @@ def loglikelihood(p0, fr, nspec, ndust, data, err, broadening, r, specs, ctm, pt
 		chi_phot = chisq(init_phot, fr[3], fr[4])
 		iphot = np.sum(chi_phot)
 		#and the total chi square is the sum of the chi squares, where the spectrum is weighted to be as important as the combined photometry and contrasts
-		init_cs = np.sum((iic*(len(chi_contrast) + len(chi_phot)), icontrast, iphot))
+		init_cs = np.sum((icontrast, iphot))
 	#if we're not using a distance at all, just weight the spectrum by the contrast chi square and then calculate the total chi square
 	else:
 		# iic *= (len(chi_contrast))
-		init_cs = np.sum((iic*len(chi_contrast), icontrast))
+		init_cs = np.sum((icontrast))
 
 	#if i'm running a simple optimization I just need to return a chi square
 	if optimize == True:
@@ -1224,7 +1225,7 @@ def logprior(p0, nspec, ndust, tmin, tmax, matrix, ra, dec, prior = 0, ext = Tru
 
 		#now check to make sure that everything falls within appropriate boundaries
 		#and if it doesn't, return -inf which will force a new draw in the MCMC chain (corresponds to a zero probability for the guess)
-		if any(t > tmax for t in temps) or any(t < tmin for t in temps) or any(r < 0.05 for r in rad)  or rad[0] > 1.5 or dist < 1/3000 or dist > 1/4:
+		if any(t > tmax for t in temps) or any(t < tmin for t in temps) or any(r < 0.05 for r in rad)  or rad[0] > 1.5 or dist < 1/3000 or dist > 1/100:
 			return  -np.inf
 		if ext == True and (extinct < 0):
 			return  -np.inf 
@@ -1286,7 +1287,7 @@ def logprior(p0, nspec, ndust, tmin, tmax, matrix, ra, dec, prior = 0, ext = Tru
 		if any(t > tmax for t in temps) or any(t < tmin for t in temps) or rad < 0.05 or rad1 < 0.05:
 			return -np.inf
 		if ext == True and extinct < 0:
-			return -np.inf
+			return-np.inf
 		elif ext == True:
 			pos = SkyCoord(ra*u.deg, dec*u.deg, distance = (1/p0[-1])*u.pc)
 			av_guess = bayestar(pos, mode = 'samples') * 3.1 * 0.884
@@ -1344,7 +1345,7 @@ def logprior(p0, nspec, ndust, tmin, tmax, matrix, ra, dec, prior = 0, ext = Tru
 		pp = []
 		#now check to make sure that everything falls within appropriate boundaries
 		#and if it doesn't, return -inf which will force a new draw in the MCMC chain (corresponds to a zero probability for the guess)
-		if any(t > tmax for t in temps) or any(t < tmin for t in temps) or any(r < 0.05 for r in [rad, rad1, rad2]) or dist < 1/1000 or dist > 1/4:
+		if any(t > tmax for t in temps) or any(t < tmin for t in temps) or any(r < 0.05 for r in [rad, rad1, rad2]) or dist < 1/1000 or dist > 1/100:
 			return  -np.inf
 		if ext == True and extinct < 0:
 			return  -np.inf 
@@ -1487,7 +1488,7 @@ def run_emcee(dirname, fname, nwalkers, nsteps, ndim, nburn, pos, fr, nspec, ndu
 	tmin, tmax = min(t), max(t)
 
 	count = mp.cpu_count()
-	# with mp.Pool(processes = 15) as pool:
+	# with mp.Pool(processes = count - 2) as pool:
 	# 	sampler = emcee.EnsembleSampler(nwalkers, ndim, logposterior, threads=nwalkers, args=[fr, nspec, ndust, data, err, broadening, r, specs, ctm, ptm, tmi, tma, vs, tmin, tmax, matrix, ra, dec], \
 	# 	kwargs={'dust': du, 'norm':no, 'prior':prior, 'a':av, 'models':models, 'dist_fit':dist_fit, 'rad_prior':rad_prior})
 
@@ -2542,7 +2543,7 @@ def plot_results(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real_
 
 
 	pri_corr = np.sqrt(1 + 10**(-0.4 * kep_contrast)) #from Furlan+2017; this is assuming the primary radius is equal to the kepler radius
-	sec_corr = kep_rad * np.sqrt(1 + 10**(0.4 * kep_contrast))
+	sec_corr = kep_rad * np.sqrt(1 + 10**(0.4 * kep_contrast) * pri_corr**2)
 
 	pc_bins = np.linspace(min(pri_corr), max(pri_corr), nbins)
 	sc_bins = np.linspace(min(sec_corr), max(sec_corr), nbins)
@@ -3173,7 +3174,7 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 	###########
 
 	kep_sample = sample[np.random.choice(len(sample), size = int(1500), replace = False), :]
-	kep_sample = kep_sample[np.where((kep_sample[:,2] > 2900) & (kep_sample[:,1] > 2900) & (kep_sample[:,2] < 7000) & (kep_sample[:,1] < 7000) & (kep_sample[:,0] < 7000))]
+	kep_sample = kep_sample[np.where((kep_sample[:,2] > 2900) & (kep_sample[:,1] > 2900) & (kep_sample[:,2] < 6200) & (kep_sample[:,1] < 6200) & (kep_sample[:,0] < 6200))]
 
 	kep_contrast = []; kep_contrast2 = []; kep_rad = []; kep_rad2 = []
 	for n in range(len(kep_sample)):
@@ -3242,9 +3243,9 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 	plt.close()
 	np.savetxt('{}/kep_contrast_tri.txt'.format(run), kep_contrast)
 
-	pri_corr = np.sqrt(1 + 10**(-0.4 * kep_contrast) + 10**(-0.4 * kep_contrast2)) #from ciardi+2015; Furlan+2017
-	sec_corr = kep_rad * np.sqrt(10**(0.4 * kep_contrast) * pri_corr**2)
-	tri_corr = kep_rad2 * np.sqrt(10**(0.4*kep_contrast2) * pri_corr**2)
+	pri_corr = np.sqrt(1 + 10**(-0.4 * kep_contrast)) #from ciardi+2015; Furlan+2017
+	sec_corr = kep_rad * np.sqrt(1 + 10**(0.4 * kep_contrast))
+	tri_corr = kep_rad2 * np.sqrt(1 + 10**(0.4*kep_contrast2))
 
 	pc_bins = np.linspace(min(pri_corr), max(pri_corr), nbins)
 	sc_bins = np.linspace(min(sec_corr), max(sec_corr), nbins)
@@ -3450,7 +3451,7 @@ def plot_results3(fname, sample, run, data, sp, fr, ctm, ptm, tmi, tma, vs, real
 def main(argv):
 	argument_list = argv[1:]
 	short_options = 'f:o:e:' #filename, optimize y/n, emcee y/n
-	long_options = 'file:optimize:emcee:'
+	long_options = 'file =, optimize =, emcee ='
 	arguments, values = getopt.getopt(argument_list, short_options, long_options)
 
 	parkey, parfile = arguments[0]
